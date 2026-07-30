@@ -1,8 +1,8 @@
 # Onceling — Status
 
-**Phase 2 of 4 · Last updated: 2026-07-30**
+**Phase 2 of 4 · Last updated: 2026-07-31**
 
-**Now:** P2-01 — enable Firestore on dev
+**Now:** P2-06 — mapper layer
 
 ---
 
@@ -91,10 +91,17 @@ pairing is the invariant the product rests on and is far cheaper to get right be
 there is data.
 
 - [x] **P2-01** Enable Firestore on dev — `asia-south1`, production mode
-- [ ] **P2-02** Enable Email/Password auth
-- [ ] **P2-03** Add `lib/firebase_options*.dart` to `.gitignore` **before** generating
-- [ ] **P2-04** `flutterfire configure --project=qalb-coupleapp-dev`
-- [ ] **P2-05** Install and run the Local Emulator Suite (Firestore, Auth, Functions)
+- [x] **P2-02** Enable Email/Password auth
+      *Google provider also enabled; public-facing name set to Onceling.*
+- [x] **P2-03** Add `lib/firebase_options*.dart` to `.gitignore` **before** generating
+      *`google-services.json` and `GoogleService-Info.plist` gitignored too.*
+- [x] **P2-04** `flutterfire configure --project=qalb-coupleapp-dev`
+      *Android and iOS apps registered; `lib/firebase_options_dev.dart` generated
+      (gitignored).*
+- [x] **P2-05** Install and run the Local Emulator Suite (Firestore, Auth, Functions)
+      *Auth 9099, Functions 5001, Firestore 8080, UI 4000. Functions scaffolded in
+      TypeScript. `firestore.rules` and `firestore.indexes.json` created and
+      registered.*
 - [ ] **P2-06** Mapper layer — sealed `FeedItem` ⟷ flat `items` document (brief §9)
 - [ ] **P2-07** Add Riverpod (no codegen initially); auth and couple providers
 - [ ] **P2-08** Six-character code generation with a uniqueness lookup document

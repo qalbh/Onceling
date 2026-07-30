@@ -147,14 +147,23 @@ Projects `qalb-coupleapp-dev` and `qalb-coupleapp-prod`. IDs are permanent.
   is for device testing with real push, not for iteration.
 - Emulator ports: Auth 9099, Functions 5001, Firestore 8080, UI 4000. Do not change
   them — tooling and docs assume the defaults.
+- Local dev runs two persistent processes: `firebase emulators:start` at the repo
+  root, and `npm run build:watch` in `functions/`. The emulator loads
+  `functions/lib/index.js`, not the TypeScript source — without the watcher running,
+  function changes silently do not take effect and you will debug stale code.
 - Emulator gaps to remember: no FCM, indexes are not enforced, data is ephemeral, and
   there is no network latency. A query that passes locally can still fail in the
   cloud with a missing-index error. Verify index-dependent queries against dev.
+- The Storage emulator is not enabled. Until it is, Functions calls to Cloud Storage
+  hit the real dev bucket. Enable it before **P2-13** (photo upload).
 - Functions can be built and tested on the Spark plan via the emulator. Blaze is only
   required to deploy (**P2-16** for dev, **P4-06** for prod).
-- The Functions emulator is configured but no `functions/` directory exists yet. It
-  gets scaffolded with `firebase init functions` at **P2-09**. Use **TypeScript** —
-  the pairing transaction is exactly the code where a typo costs an hour.
+- Functions are scaffolded in `functions/` using TypeScript. Source lives in
+  `functions/src/`, compiled output in `functions/lib/`. The pairing transaction
+  (**P2-09**) goes here.
+- `functions/package.json` pins Node 22 to match the local runtime. Do not bump it to
+  24 without upgrading the local Node install first — emulator and deploy target must
+  match.
 - `lib/firebase_options*.dart`, `google-services.json`, and `GoogleService-Info.plist`
   are gitignored. Never commit them, never paste their contents into chat.
 - Model for the queries actually run, not relational tidiness. Denormalize where it
@@ -214,6 +223,9 @@ redirect (**P2-14**). Handle gating in one place, never per-screen.
   for namespaces.
 - Run `dart format lib test` before finishing. Scripted text replacement does not
   produce formatted output — if you edit by pattern, format afterwards.
+- Cloud Functions are TypeScript. Do not add `.js` files to `functions/src/`. The
+  pairing transaction and secret deletion are exactly the code where a mistyped
+  field name should fail at compile time rather than in the emulator.
 
 ## File editing
 
