@@ -57,7 +57,10 @@ void main() {
     testWidgets('shows both sections and the user code', (tester) async {
       await openPairing(tester);
 
-      expect(find.text('One code, one partner, forever after.'), findsOneWidget);
+      expect(
+        find.text('One code, one partner, forever after.'),
+        findsOneWidget,
+      );
       expect(find.text('YOUR CODE'), findsOneWidget);
       expect(find.text('ENTER THEIRS'), findsOneWidget);
       expect(find.text('Copy code'), findsOneWidget);

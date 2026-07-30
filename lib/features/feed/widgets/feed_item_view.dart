@@ -86,10 +86,7 @@ class FeedItemView extends StatelessWidget {
             _PhotoWell(label: placeholder, width: maxWidth * 0.84),
             if (caption != null) ...[
               const SizedBox(height: 10),
-              Text(
-                caption,
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
+              Text(caption, style: Theme.of(context).textTheme.headlineMedium),
             ],
           ],
         ),
@@ -124,10 +121,7 @@ class FeedItemView extends StatelessWidget {
         (null, true) => SecretSentBubble(duration: duration),
         (null, false) => ConstrainedBox(
           constraints: BoxConstraints(maxWidth: maxWidth * 0.88),
-          child: SecretCard(
-            item: item as SecretMessage,
-            onOpen: onOpenSecret,
-          ),
+          child: SecretCard(item: item as SecretMessage, onOpen: onOpenSecret),
         ),
       },
       StatusNote() => const SizedBox.shrink(),
@@ -158,9 +152,9 @@ class FeedItemView extends StatelessWidget {
         builder: (context) => Text(
           delivered ? '$time · Delivered' : time,
           textAlign: isMine ? TextAlign.right : TextAlign.left,
-          style: Theme.of(context).textTheme.titleSmall!.copyWith(
-            color: context.palette.inkFaint,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall!.copyWith(color: context.palette.inkFaint),
         ),
       ),
       if (reaction != null) ...[

@@ -47,10 +47,7 @@ class _PairingScreenState extends State<PairingScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Find your person',
-                style: AppTheme.wordmark(context, 30),
-              ),
+              Text('Find your person', style: AppTheme.wordmark(context, 30)),
               const SizedBox(height: 14),
               Text(
                 'One code, one partner, forever after.',
@@ -145,8 +142,9 @@ class _PairingScreenState extends State<PairingScreen> {
                     return;
                   }
                   // Pairing is one-way: the thread replaces this screen.
-                  Navigator.of(context)
-                      .pushReplacementNamed(FeedScreen.routeName);
+                  Navigator.of(
+                    context,
+                  ).pushReplacementNamed(FeedScreen.routeName);
                 }
               : null,
         ),
@@ -184,9 +182,9 @@ class _SectionLabel extends StatelessWidget {
     return Text(
       text,
       textAlign: TextAlign.center,
-      style: Theme.of(context).textTheme.labelSmall!.copyWith(
-        color: context.palette.inkFaint,
-      ),
+      style: Theme.of(
+        context,
+      ).textTheme.labelSmall!.copyWith(color: context.palette.inkFaint),
     );
   }
 }

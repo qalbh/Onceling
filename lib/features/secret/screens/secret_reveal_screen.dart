@@ -96,9 +96,7 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
 
   void _finish({required bool heldFull}) {
     if (!mounted) return;
-    Navigator.of(
-      context,
-    ).pop(SecretRevealResult(heldFullCountdown: heldFull));
+    Navigator.of(context).pop(SecretRevealResult(heldFullCountdown: heldFull));
   }
 
   @override
@@ -185,10 +183,10 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
             child: SingleChildScrollView(
               child: Text(
                 widget.secret.body,
-                style: AppTheme.wordmark(context, 26).copyWith(
-                  color: palette.secretPaper,
-                  height: 1.42,
-                ),
+                style: AppTheme.wordmark(
+                  context,
+                  26,
+                ).copyWith(color: palette.secretPaper, height: 1.42),
               ),
             ),
           ),
@@ -259,9 +257,10 @@ class _SealedCard extends StatelessWidget {
             '${from.name} wrote this for you',
             textAlign: TextAlign.center,
             // The card is always paper, so it carries its own ink tone.
-            style: AppTheme.wordmark(context, 20).copyWith(
-              color: context.palette.onSecretPaper,
-            ),
+            style: AppTheme.wordmark(
+              context,
+              20,
+            ).copyWith(color: context.palette.onSecretPaper),
           ),
         ],
       ),

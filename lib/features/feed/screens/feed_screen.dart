@@ -203,8 +203,7 @@ class _FeedScreenState extends State<FeedScreen> {
                       builder: (_) => SettingsScreen(viewer: _viewer),
                     ),
                   ),
-                  onSwapViewer: () =>
-                      setState(() => _viewer = _viewer.other),
+                  onSwapViewer: () => setState(() => _viewer = _viewer.other),
                 ),
               ),
               Expanded(

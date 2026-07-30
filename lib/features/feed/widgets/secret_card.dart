@@ -120,15 +120,16 @@ class SecretCard extends StatefulWidget {
 
 class _SecretCardState extends State<SecretCard>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _hold = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 900),
-  )..addStatusListener((status) {
-    if (status == AnimationStatus.completed) {
-      _hold.value = 0;
-      widget.onOpen?.call();
-    }
-  });
+  late final AnimationController _hold =
+      AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 900),
+      )..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          _hold.value = 0;
+          widget.onOpen?.call();
+        }
+      });
 
   @override
   void dispose() {

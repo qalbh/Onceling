@@ -126,9 +126,10 @@ class _TrayEmojiState extends State<_TrayEmoji>
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: ScaleTransition(
-          scale: Tween<double>(begin: 1.0, end: 1.45).animate(
-            CurvedAnimation(parent: _pop, curve: Curves.easeOutBack),
-          ),
+          scale: Tween<double>(
+            begin: 1.0,
+            end: 1.45,
+          ).animate(CurvedAnimation(parent: _pop, curve: Curves.easeOutBack)),
           child: Glyph(widget.emoji, size: context.glyphs.traySlot),
         ),
       ),

@@ -6,7 +6,10 @@ import 'package:couple_app/features/feed/screens/feed_screen.dart';
 import 'package:couple_app/features/feed/widgets/feed_header.dart';
 import 'package:couple_app/theme/app_theme.dart';
 
-Future<void> pumpFeed(WidgetTester tester, {Person viewer = Person.devon}) async {
+Future<void> pumpFeed(
+  WidgetTester tester, {
+  Person viewer = Person.devon,
+}) async {
   tester.view.physicalSize = const Size(1170, 2532);
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.reset);

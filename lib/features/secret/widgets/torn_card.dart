@@ -39,10 +39,7 @@ class TornCard extends StatelessWidget {
   Widget _half({required bool isTop, required double eased}) {
     // Top piece drifts up and left, bottom piece down and right.
     final direction = isTop ? -1.0 : 1.0;
-    final offset = Offset(
-      direction * -60 * eased,
-      direction * 150 * eased,
-    );
+    final offset = Offset(direction * -60 * eased, direction * 150 * eased);
 
     return Transform.translate(
       offset: offset,

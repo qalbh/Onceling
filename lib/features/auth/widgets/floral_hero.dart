@@ -9,7 +9,10 @@ import '../../../theme/theme_colors.dart';
 /// Drops in `assets/images/floral_bouquet.png` when that file exists; otherwise
 /// paints an equivalent bouquet so the screen always renders.
 class FloralHero extends StatelessWidget {
-  const FloralHero({super.key, this.assetPath = 'assets/images/floral_bouquet.png'});
+  const FloralHero({
+    super.key,
+    this.assetPath = 'assets/images/floral_bouquet.png',
+  });
 
   final String assetPath;
 
@@ -140,11 +143,7 @@ class _BouquetPainter extends CustomPainter {
       rect,
       Paint()
         ..shader = RadialGradient(
-          colors: [
-            palette.paperHighlight,
-            palette.paper,
-            palette.paperShade,
-          ],
+          colors: [palette.paperHighlight, palette.paper, palette.paperShade],
           stops: const [0.0, 0.62, 1.0],
         ).createShader(rect),
     );
@@ -170,7 +169,8 @@ class _BouquetPainter extends CustomPainter {
         ..color = palette.leafDeep.withValues(alpha: 0.55),
     );
 
-    final leafPaint = Paint()..color = _leaf(sprig.tone).withValues(alpha: 0.85);
+    final leafPaint = Paint()
+      ..color = _leaf(sprig.tone).withValues(alpha: 0.85);
     for (var i = 0; i < sprig.leaves; i++) {
       final t = (i + 1) / (sprig.leaves + 1);
       // Point on the quadratic stem at t.
@@ -182,7 +182,14 @@ class _BouquetPainter extends CustomPainter {
     }
 
     // A small leaf capping the tip.
-    _paintLeaf(canvas, tip, sprig.angle, length * 0.30, length * 0.11, leafPaint);
+    _paintLeaf(
+      canvas,
+      tip,
+      sprig.angle,
+      length * 0.30,
+      length * 0.11,
+      leafPaint,
+    );
   }
 
   Offset _quadraticAt(Offset a, Offset b, Offset c, double t) {

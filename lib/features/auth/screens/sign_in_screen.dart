@@ -63,13 +63,15 @@ class SignInScreen extends StatelessWidget {
                         PrimaryAuthButton(
                           label: 'Continue with Apple',
                           onPressed:
-                              onContinueWithApple ?? () => _openPairing(context),
+                              onContinueWithApple ??
+                              () => _openPairing(context),
                         ),
                         const SizedBox(height: 14),
                         SecondaryAuthButton(
                           label: 'Continue with Google',
                           onPressed:
-                              onContinueWithGoogle ?? () => _openPairing(context),
+                              onContinueWithGoogle ??
+                              () => _openPairing(context),
                         ),
                         const SizedBox(height: 6),
                         UnderlinedTextButton(

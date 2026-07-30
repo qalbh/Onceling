@@ -42,9 +42,7 @@ class SecretOpenedDialog extends StatelessWidget {
     return Dialog(
       backgroundColor: theme.colorScheme.surfaceContainerLowest,
       insetPadding: const EdgeInsets.symmetric(horizontal: 20),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(28),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(28, 32, 28, 26),
         child: Column(

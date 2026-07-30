@@ -142,7 +142,9 @@ class _ComposeSheetState extends State<ComposeSheet> {
         decoration: InputDecoration(
           border: InputBorder.none,
           isCollapsed: true,
-          hintText: _isSecret ? 'Only they will see this. Once.' : 'What is it?',
+          hintText: _isSecret
+              ? 'Only they will see this. Once.'
+              : 'What is it?',
           hintStyle: theme.textTheme.headlineLarge!.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
@@ -158,11 +160,7 @@ class _ComposeSheetState extends State<ComposeSheet> {
       spacing: 12,
       runSpacing: 12,
       children: [
-        _ComposeChip(
-          label: 'Add photo',
-          selected: false,
-          onTap: () {},
-        ),
+        _ComposeChip(label: 'Add photo', selected: false, onTap: () {}),
         _ComposeChip(
           label: 'Secret',
           leading: '🔒',
@@ -252,8 +250,7 @@ class _ComposeChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           spacing: 8,
           children: [
-            if (leading != null)
-              Glyph(leading!, size: context.glyphs.chipLock),
+            if (leading != null) Glyph(leading!, size: context.glyphs.chipLock),
             Text(
               label,
               style: theme.textTheme.bodyLarge!.copyWith(

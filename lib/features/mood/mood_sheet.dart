@@ -15,8 +15,18 @@ class Mood {
 }
 
 const moodEmoji = [
-  '🥰', '😌', '🥲', '😴', '🔥', '🫠',
-  '😏', '☕', '🌧️', '🎧', '🐢', '🫶',
+  '🥰',
+  '😌',
+  '🥲',
+  '😴',
+  '🔥',
+  '🫠',
+  '😏',
+  '☕',
+  '🌧️',
+  '🎧',
+  '🐢',
+  '🫶',
 ];
 
 /// Bottom sheet for setting your own mood.
@@ -181,9 +191,9 @@ class _MoodSheetState extends State<MoodSheet> {
       width: double.infinity,
       height: 58,
       child: FilledButton(
-        onPressed: () => Navigator.of(context).pop(
-          Mood(emoji: _emoji, note: _note.text.trim()),
-        ),
+        onPressed: () => Navigator.of(
+          context,
+        ).pop(Mood(emoji: _emoji, note: _note.text.trim())),
         style: FilledButton.styleFrom(
           backgroundColor: context.palette.bubbleMine,
           foregroundColor: theme.colorScheme.onPrimary,

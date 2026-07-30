@@ -58,10 +58,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed != true || !mounted) return;
 
     // Everything is gone — there is nothing to come back to.
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      SignInScreen.routeName,
-      (route) => false,
-    );
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(SignInScreen.routeName, (route) => false);
   }
 
   @override
@@ -223,9 +222,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 16),
           Text(
             'Tap a slot to swap it.',
-            style: Theme.of(context).textTheme.titleLarge!.copyWith(
-              color: context.palette.inkFaint,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge!.copyWith(color: context.palette.inkFaint),
           ),
         ],
       ),
