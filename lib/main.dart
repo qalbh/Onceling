@@ -1,16 +1,47 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'features/auth/screens/sign_in_screen.dart';
 import 'features/feed/screens/feed_screen.dart';
 import 'features/pairing/screens/pairing_screen.dart';
 import 'features/settings/screens/settings_screen.dart';
+import 'firebase_options_dev.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
   // Both families are bundled in assets/fonts/; never reach out to Google.
   GoogleFonts.config.allowRuntimeFetching = false;
-  runApp(const OncelingApp());
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  _connectToEmulators();
+
+  runApp(const ProviderScope(child: OncelingApp()));
+}
+
+/// Points the SDKs at the Local Emulator Suite — debug builds only.
+///
+/// Isolated in one function on purpose: a stray emulator call left in a release
+/// build would silently send real users' data nowhere, and that is much easier
+/// to spot here than scattered through `main()`.
+///
+/// Ports match the ones pinned in CLAUDE.md. `localhost` is correct for iOS
+/// simulators and desktop; an Android emulator reaches the host at `10.0.2.2`,
+/// so this needs a platform branch before Android is tested against it.
+void _connectToEmulators() {
+  if (!kDebugMode) return;
+
+  const host = 'localhost';
+  FirebaseAuth.instance.useAuthEmulator(host, 9099);
+  FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
+  FirebaseFunctions.instance.useFunctionsEmulator(host, 5001);
 }
 
 class OncelingApp extends StatelessWidget {

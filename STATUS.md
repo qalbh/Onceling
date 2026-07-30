@@ -2,7 +2,7 @@
 
 **Phase 2 of 4 · Last updated: 2026-07-31**
 
-**Now:** P2-07 — add Riverpod; auth and couple providers
+**Now:** P2-08 — six-character code generation with a uniqueness lookup document
 
 ---
 
@@ -108,7 +108,13 @@ there is data.
       map on all five types; `SecretMessage.body` and `markOpened()` removed —
       bodies live in `secretBodies/`, deletion is **P3-01**. No `isSecret` field:
       `type` carries that fact alone.*
-- [ ] **P2-07** Add Riverpod (no codegen initially); auth and couple providers
+- [x] **P2-07** Add Riverpod (no codegen initially); auth and couple providers
+      *`firebase_core`, `firebase_auth`, `cloud_firestore`, `cloud_functions`,
+      `flutter_riverpod` added. `main()` initialises Firebase and wraps the app in
+      `ProviderScope`; `_connectToEmulators()` points the SDKs at the suite under
+      `kDebugMode` only. `lib/common/providers.dart` has auth, Firestore and
+      `authStateProvider` — the couple provider waits for the pairing model.
+      iOS deployment target 13.0 → 15.0, required by the Firebase iOS SDK.*
 - [ ] **P2-08** Six-character code generation with a uniqueness lookup document
 - [ ] **P2-09** **Pairing transaction** — callable Function, atomic, idempotent,
       safe against two people claiming the same code simultaneously
@@ -127,6 +133,18 @@ there is data.
       and unknown duration both throw.*
 - [ ] **P2-18** Unit tests for the pairing transaction — concurrent claim, double tap,
       self-pair, already-paired user. *Highest-value test in the project.*
+- [ ] **P2-19** Google sign-in wiring — SHA-1 and SHA-256 fingerprints registered in
+      Firebase (Android), reversed client ID as URL scheme in `Info.plist` (iOS),
+      `google_sign_in` package. The provider is already enabled in the console with
+      the public-facing name set to Onceling; only the platform config and client
+      code remain.
+- [ ] **P2-20** Sign in with Apple — required by App Store Review Guideline 4.8 once
+      Google sign-in ships. Needs a paid Apple Developer Program membership for the
+      Services ID and key. The sign-in screen already has the button.
+- [ ] **P2-21** Platform-branch the emulator host — Android emulators need `10.0.2.2`,
+      not `localhost`. Blocks any Android testing against the emulator.
+- [ ] **P2-22** Replace the duck-typed `toDate()` in `feed_item_mapper.dart` with a
+      real `Timestamp` cast now that `cloud_firestore` has landed. Update mapper tests.
 
 ---
 
@@ -168,6 +186,11 @@ Non-blocking. Fix when convenient.
 - [ ] **D-06** `delivered` dropped from `TextMessage` and `SecretMessage` during
       **P2-06**. The "· Delivered" suffix no longer renders. Restore as real server
       state at **P2-12**.
+- [ ] **D-07** `flutter_riverpod` resolved to 2.6.1; 3.x reports incompatible with
+      current constraints. The 2.x API covers everything needed, but investigate the
+      constraint before the codebase gets large.
+- [ ] **D-08** `@firebase/app` pinned in `functions/` to work around a broken peer
+      dependency in `firebase-admin@13.6.0`. Recheck on the next upgrade.
 
 ---
 

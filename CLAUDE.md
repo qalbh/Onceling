@@ -147,6 +147,9 @@ Projects `qalb-coupleapp-dev` and `qalb-coupleapp-prod`. IDs are permanent.
   is for device testing with real push, not for iteration.
 - Emulator ports: Auth 9099, Functions 5001, Firestore 8080, UI 4000. Do not change
   them — tooling and docs assume the defaults.
+- Emulator host is `localhost`, correct for iOS simulators and desktop. Android
+  emulators reach the host at `10.0.2.2` and will need a platform branch in
+  `_connectToEmulators()` before Android is tested (**P2-21**).
 - Local dev runs two persistent processes: `firebase emulators:start` at the repo
   root, and `npm run build:watch` in `functions/`. The emulator loads
   `functions/lib/index.js`, not the TypeScript source — without the watcher running,
@@ -164,6 +167,11 @@ Projects `qalb-coupleapp-dev` and `qalb-coupleapp-prod`. IDs are permanent.
 - `functions/package.json` pins Node 22 to match the local runtime. Do not bump it to
   24 without upgrading the local Node install first — emulator and deploy target must
   match.
+- `functions/package.json` includes `@firebase/app` as a direct dependency. Our code
+  does not use it. `firebase-admin@13.x` ships `@firebase/database-compat`, which
+  requires `@firebase/app` as a peer but does not install it — the Functions emulator
+  fails with MODULE_NOT_FOUND without it. Do not remove it as unused.
+- Minimum iOS is 15.0, forced by the Firebase SDKs. Do not lower it.
 - `lib/firebase_options*.dart`, `google-services.json`, and `GoogleService-Info.plist`
   are gitignored. Never commit them, never paste their contents into chat.
 - Model for the queries actually run, not relational tidiness. Denormalize where it
@@ -226,6 +234,10 @@ redirect (**P2-14**). Handle gating in one place, never per-screen.
 - Cloud Functions are TypeScript. Do not add `.js` files to `functions/src/`. The
   pairing transaction and secret deletion are exactly the code where a mistyped
   field name should fail at compile time rather than in the emulator.
+- `analysis_options.yaml` excludes `build/**`. Swift Package Manager checks plugin
+  sources into `build/ios/SourcePackages/`, and without the exclusion the analyzer
+  walks other packages' tests — 394 errors after the Firebase dependencies landed.
+  Do not remove the exclusion.
 
 ## File editing
 
