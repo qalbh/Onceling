@@ -1,1 +1,70 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"qalb-coupleapp-dev","appId":"1:433180270201:android:aadf36a18013e997443ea8","fileOutput":"android/app/google-services.json"}},"ios":{"default":{"projectId":"qalb-coupleapp-dev","appId":"1:433180270201:ios:b8c55531f1995be1443ea8","uploadDebugSymbols":false,"fileOutput":"ios/Runner/GoogleService-Info.plist"}},"dart":{"lib/firebase_options_dev.dart":{"projectId":"qalb-coupleapp-dev","configurations":{"android":"1:433180270201:android:aadf36a18013e997443ea8","ios":"1:433180270201:ios:b8c55531f1995be1443ea8"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "qalb-coupleapp-dev",
+          "appId": "1:433180270201:android:aadf36a18013e997443ea8",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "qalb-coupleapp-dev",
+          "appId": "1:433180270201:ios:b8c55531f1995be1443ea8",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options_dev.dart": {
+          "projectId": "qalb-coupleapp-dev",
+          "configurations": {
+            "android": "1:433180270201:android:aadf36a18013e997443ea8",
+            "ios": "1:433180270201:ios:b8c55531f1995be1443ea8"
+          }
+        }
+      }
+    }
+  },
+  "emulators": {
+    "auth": {
+      "port": 9099
+    },
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    },
+    "singleProjectMode": true
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "disallowLegacyRuntimeConfig": true,
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run lint",
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
+    }
+  ],
+  "firestore": {
+    "database": "(default)",
+    "location": "asia-south1",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}
