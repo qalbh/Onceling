@@ -111,15 +111,25 @@ without overflow.
 
 The client is untrusted. Assume a modified client.
 
-- **Pairing is a server-side claim operation.** A callable Cloud Function running a
-  Firestore transaction. Never fetch a partner's code to the client and compare it
-  there. Never accept a pairing that the server did not perform.
+- **Pairing is a server-side request/accept handshake**, not a claim. Three callables:
+  `requestPairing` (**P2-09**), `respondToPairing` (**P2-09b**), `cancelPairingRequest`
+  (**P2-09c**). Knowing a code is not enough to pair — the recipient must accept. Never
+  fetch a partner's code to the client and compare it there. Never accept a pairing
+  the server did not perform. The accept is the transaction that creates the couple,
+  sets `coupleId` on both users, rejects all other pending requests for both, and
+  deletes both pairing codes.
+- A code is an address, not a credential. Knowing it lets you knock, nothing more.
+  Never build a flow where entering a code pairs anyone automatically.
+- A declined request must expire silently. Never tell the sender they were declined
+  (**PI-05**) — it is unkind, and it confirms to a code-guesser that a real person owns
+  that code.
 - **Secret deletion happens in a Cloud Function** (**P3-01**), never on the client. A
   client that deletes its own copy has not deleted anything.
 - **The one-partner invariant is enforced in a transaction and in Firestore Security
   Rules**, not in UI copy. The pairing screen promises "You can only ever be paired
   with one person" — that promise must be true at the data layer, atomically, and
-  safe against two people claiming the same code at the same moment.
+  safe against the handshake's races — chiefly two users accepting each other's
+  requests simultaneously, and the same request being accepted twice. See **P2-18**.
 - Any operation that must not double-apply (pairing, claiming, unpairing, one-time
   reveals) is a transaction or a callable function. Idempotent, safe against double
   taps and races.
