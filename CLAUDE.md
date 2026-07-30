@@ -32,6 +32,10 @@ Do not rename identifiers to match the product. Theme classes use neutral names
 (`ThemeColors`, `ThemeGlyphs`) for the same reason. Note the leading `dev.` in the
 bundle ID is the reverse-domain TLD, not "development" — never append `.dev` to it.
 
+The Android applicationId and iOS bundle ID differ in case and separator. That is
+pre-existing, both are registered in Firebase, and both become permanent at first
+store submission. Do not attempt to unify them.
+
 ## Architecture
 
 Feature-first. Everything lives under `lib/features/<feature>/`, split into
@@ -53,11 +57,14 @@ focus. Do not convert existing `setState` to Riverpod.
 feed, anything backed by Firestore or surviving a screen transition. Use
 `ConsumerWidget` / `ConsumerStatefulWidget` with `ref.watch`.
 
-Start **without** codegen (`@riverpod` annotations / `build_runner`). Plain
-`Provider` / `StreamProvider` / `NotifierProvider` declarations. Codegen can come
-later if boilerplate becomes a real problem.
+Riverpod is added at **P2-07**, with the auth and couple providers. Start **without**
+codegen (`@riverpod` annotations / `build_runner`) — plain `Provider` /
+`StreamProvider` / `NotifierProvider` declarations. Codegen can come later if
+boilerplate becomes a real problem.
 
-Never introduce BLoC, Provider, GetX, Redux, or MobX. One state library.
+Never introduce BLoC, GetX, Redux, MobX, or the standalone `provider` package. One
+state library. Note that Riverpod's own `Provider` class is unrelated to the
+`provider` package and is the correct thing to use.
 
 ## Theming
 
@@ -107,8 +114,8 @@ The client is untrusted. Assume a modified client.
 - **Pairing is a server-side claim operation.** A callable Cloud Function running a
   Firestore transaction. Never fetch a partner's code to the client and compare it
   there. Never accept a pairing that the server did not perform.
-- **Secret deletion happens in a Cloud Function**, never on the client. A client that
-  deletes its own copy has not deleted anything.
+- **Secret deletion happens in a Cloud Function** (**P3-01**), never on the client. A
+  client that deletes its own copy has not deleted anything.
 - **The one-partner invariant is enforced in a transaction and in Firestore Security
   Rules**, not in UI copy. The pairing screen promises "You can only ever be paired
   with one person" — that promise must be true at the data layer, atomically, and
@@ -122,18 +129,32 @@ The client is untrusted. Assume a modified client.
 - Every Firestore collection ships with matching Security Rules in the same change
   that introduces it. A collection without rules is not done.
 - Push payloads for secrets carry no body text and no preview.
+- **Every change to `firestore.rules` must be audited with the
+  `firebase-security-rules-auditor` skill before it is committed.** Report the score
+  and every finding. A score below 4 blocks the change. The audit is not a substitute
+  for rules unit tests (**P2-11**). Both are required: the auditor reviews, the
+  emulator proves.
 
 If asked to implement any of the above client-side, refuse and explain why.
 
 ## Firebase
 
 Projects `qalb-coupleapp-dev` and `qalb-coupleapp-prod`. IDs are permanent.
+`.firebaserc` defaults to dev; switching to prod is deliberate and explicit.
 
 - **Build against the Local Emulator Suite, not the cloud project.** Wipe between
   runs, test concurrent writes, run Security Rules unit tests. The dev cloud project
   is for device testing with real push, not for iteration.
+- Emulator ports: Auth 9099, Functions 5001, Firestore 8080, UI 4000. Do not change
+  them — tooling and docs assume the defaults.
+- Emulator gaps to remember: no FCM, indexes are not enforced, data is ephemeral, and
+  there is no network latency. A query that passes locally can still fail in the
+  cloud with a missing-index error. Verify index-dependent queries against dev.
 - Functions can be built and tested on the Spark plan via the emulator. Blaze is only
-  required to deploy.
+  required to deploy (**P2-16** for dev, **P4-06** for prod).
+- The Functions emulator is configured but no `functions/` directory exists yet. It
+  gets scaffolded with `firebase init functions` at **P2-09**. Use **TypeScript** —
+  the pairing transaction is exactly the code where a typo costs an hour.
 - `lib/firebase_options*.dart`, `google-services.json`, and `GoogleService-Info.plist`
   are gitignored. Never commit them, never paste their contents into chat.
 - Model for the queries actually run, not relational tidiness. Denormalize where it
@@ -141,20 +162,44 @@ Projects `qalb-coupleapp-dev` and `qalb-coupleapp-prod`. IDs are permanent.
 - Handle loading / empty / error states explicitly on every read. All three.
 - Paginate lists. Avoid collection scans; use lookup documents keyed by the value
   being searched when uniqueness or O(1) lookup is needed.
-- Keep composite indexes in `firestore.indexes.json` in sync with queries.
+- Keep composite indexes in `firestore.indexes.json` in sync with queries (**P3-06**).
+
+## Agent skills
+
+`.claude/skills/` and `.agents/skills/` hold Firebase-authored skills installed by
+`firebase init`. Six are kept deliberately:
+
+`firebase-security-rules-auditor` · `firebase-firestore` · `firebase-auth-basics` ·
+`firebase-basics` · `firebase-crashlytics` · `xcode-project-setup`
+
+Six more were installed and **deliberately removed**: `firebase-data-connect`,
+`firebase-app-hosting-basics`, `firebase-hosting-basics`, `firebase-ai-logic-basics`,
+`firebase-remote-config-basics`, `extension-to-functions-codebase`.
+
+Do not reinstall them. Data Connect is a competing database product that contradicts
+the Firestore data model in brief §9, and the hosting skills describe a web app,
+which brief §7 puts out of scope for V1. If `firebase init` restores them, prune
+again and prune the matching entries from `skills-lock.json`.
+
+Any skill that changes content hash in `skills-lock.json` should be re-read before it
+is trusted — these are third-party files that shape agent behaviour.
 
 ## Navigation
 
 Named routes in `main.dart` for now. When auth-gating lands (signed-out → sign-in,
 signed-in-unpaired → pairing, paired → feed), migrate to `go_router` with a single
-redirect. Handle gating in one place, never per-screen.
+redirect (**P2-14**). Handle gating in one place, never per-screen.
 
 ## Testing
 
 - Any new screen with real interaction gets a widget test.
-- Anything server-adjacent gets a unit test: transaction logic, mappers, validators.
-- Security Rules changes get rules unit tests. A rule without a test proving the
-  negative case — user A cannot read couple B's data — is not done.
+- Anything server-adjacent gets a unit test: transaction logic, mappers (**P2-17**),
+  validators.
+- Security Rules changes get rules unit tests run against the emulator. A rule without
+  a test proving the negative case — user A cannot read couple B's data — is not done.
+- Concurrency claims need concurrency tests (**P2-18**). "Atomic" is not established
+  by reading the code; prove it by firing simultaneous operations in a loop and
+  asserting exactly one succeeds.
 - Set `tester.view.physicalSize` with `addTearDown(tester.view.reset)` when device
   size matters.
 - Do not write golden tests test-first; generate the golden from verified output.
