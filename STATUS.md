@@ -144,6 +144,12 @@ there is data.
       introduces them. The `users` rule must allow a user to create and update their
       own document while forbidding any client write to `coupleId` — that field is set
       only by the **P2-09b** transaction and cleared only by unpair.
+      The `coupleId` restriction cannot be a flat field-level deny. Firestore rules
+      evaluate whole-document writes, so the rule must compare incoming against
+      existing: permit an update where `coupleId` is unchanged, reject one where it
+      differs. On create it must be null. A flat deny blocks legitimate profile edits
+      that happen to include the field, and `displayName` updates silently stop
+      working.
 - [ ] **P2-11** Security Rules unit tests — negative cases on every collection: user A
       cannot read couple B's items, cannot read another user's document in
       `pairingCodes`, and cannot read another user's pending `pairingRequests`.
@@ -151,6 +157,9 @@ there is data.
       not merely absent from the happy path. Same for clearing it — an unrestricted
       clear lets a client orphan a couple, leaving one partner paired to nobody and
       the other paired to a ghost. Both directions need a failing-write test.
+      Include a **passing** case alongside the two failing writes: a user updating
+      their own `displayName` while `coupleId` is present and unchanged must succeed.
+      Without it, an over-strict rule passes the negative tests and breaks the app.
 - [ ] **P2-12** Feed persistence with a real-time listener and pagination
 - [ ] **P2-13** Photo upload to Cloud Storage. *Enable the Storage emulator first —
       until it is on, Functions calls to Cloud Storage hit the real dev bucket.*
