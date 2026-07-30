@@ -19,21 +19,40 @@ class SecretRevealResult {
 /// The full-screen secret takeover: a held breath, the tear, then the reading
 /// against a countdown. Once it ends the secret is gone for both people.
 class SecretRevealScreen extends StatefulWidget {
-  const SecretRevealScreen({super.key, required this.secret});
+  const SecretRevealScreen({
+    super.key,
+    required this.secret,
+    required this.senderName,
+    required this.body,
+  });
 
   final SecretMessage secret;
+
+  /// Display name for `secret.senderId`, resolved by the caller.
+  final String senderName;
+
+  /// Fetched from `secretBodies/{itemId}` at reveal time — it is deliberately
+  /// not on [SecretMessage], so it can be hard deleted server-side (**P3-01**)
+  /// while the tombstone survives.
+  final String body;
 
   /// Opens over the thread, letting it show through the scrim.
   static Future<SecretRevealResult?> show(
     BuildContext context,
-    SecretMessage secret,
-  ) {
+    SecretMessage secret, {
+    required String senderName,
+    required String body,
+  }) {
     return Navigator.of(context).push<SecretRevealResult>(
       PageRouteBuilder(
         opaque: false,
         barrierDismissible: false,
         transitionDuration: const Duration(milliseconds: 320),
-        pageBuilder: (_, _, _) => SecretRevealScreen(secret: secret),
+        pageBuilder: (_, _, _) => SecretRevealScreen(
+          secret: secret,
+          senderName: senderName,
+          body: body,
+        ),
         transitionsBuilder: (_, animation, _, child) =>
             FadeTransition(opacity: animation, child: child),
       ),
@@ -123,7 +142,7 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
               left: 0,
               right: 0,
               child: _TopBar(
-                from: widget.secret.sender,
+                fromName: widget.senderName,
                 countdown: _countdown,
                 totalSeconds: widget.secret.duration.window?.inSeconds,
               ),
@@ -148,7 +167,7 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
             animation: _tear,
             builder: (context, _) => TornCard(
               progress: _tear.value,
-              child: _SealedCard(from: widget.secret.sender),
+              child: _SealedCard(fromName: widget.senderName),
             ),
           ),
           const SizedBox(height: 26),
@@ -182,7 +201,7 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
           Flexible(
             child: SingleChildScrollView(
               child: Text(
-                widget.secret.body,
+                widget.body,
                 style: AppTheme.wordmark(
                   context,
                   26,
@@ -223,9 +242,9 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
 
 /// The cream card holding the seal, before the tear.
 class _SealedCard extends StatelessWidget {
-  const _SealedCard({required this.from});
+  const _SealedCard({required this.fromName});
 
-  final Person from;
+  final String fromName;
 
   @override
   Widget build(BuildContext context) {
@@ -254,7 +273,7 @@ class _SealedCard extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Text(
-            '${from.name} wrote this for you',
+            '$fromName wrote this for you',
             textAlign: TextAlign.center,
             // The card is always paper, so it carries its own ink tone.
             style: AppTheme.wordmark(
@@ -271,12 +290,12 @@ class _SealedCard extends StatelessWidget {
 /// "FROM MAYA" on the left, the emptying countdown on the right.
 class _TopBar extends StatelessWidget {
   const _TopBar({
-    required this.from,
+    required this.fromName,
     required this.countdown,
     required this.totalSeconds,
   });
 
-  final Person from;
+  final String fromName;
   final Animation<double>? countdown;
   final int? totalSeconds;
 
@@ -289,7 +308,7 @@ class _TopBar extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              'FROM ${from.name.toUpperCase()}',
+              'FROM ${fromName.toUpperCase()}',
               style: Theme.of(context).textTheme.labelMedium!.copyWith(
                 fontWeight: FontWeight.w700,
                 letterSpacing: 1.8,

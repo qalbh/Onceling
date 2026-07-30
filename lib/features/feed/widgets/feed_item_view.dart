@@ -1,25 +1,30 @@
 import 'package:flutter/material.dart';
 
+import '../../../common/time_format.dart';
 import '../../../theme/theme_colors.dart';
 import '../models/feed_item.dart';
+import '../models/sample_thread.dart';
 import 'feed_header.dart';
 import 'secret_card.dart';
 
-/// Renders one entry of the thread, mirrored depending on whether [viewer]
+/// Renders one entry of the thread, mirrored depending on whether [viewerId]
 /// sent it. Outgoing sits right with the avatar in the right gutter; incoming
 /// sits left with the avatar in the left gutter.
 class FeedItemView extends StatelessWidget {
   const FeedItemView({
     super.key,
     required this.item,
-    required this.viewer,
+    required this.viewerId,
     this.onLongPress,
     this.onOpenSecret,
     this.onTapStatus,
   });
 
   final FeedItem item;
-  final Person viewer;
+
+  /// uid of the signed-in reader. Sent-vs-received is this compared against
+  /// `item.senderId`.
+  final String viewerId;
   final VoidCallback? onLongPress;
   final VoidCallback? onOpenSecret;
 
@@ -32,16 +37,12 @@ class FeedItemView extends StatelessWidget {
       return _StatusNoteView(text: text, icon: icon, onTap: onTapStatus);
     }
 
-    final sender = switch (item) {
-      TextMessage(:final sender) => sender,
-      PhotoMessage(:final sender) => sender,
-      EmojiMessage(:final sender) => sender,
-      SecretMessage(:final sender) => sender,
-      StatusNote() => viewer,
-    };
-    final isMine = sender == viewer;
+    final isMine = item.senderId == viewerId;
 
-    final avatar = PersonAvatar(person: sender, size: 34);
+    final avatar = PersonAvatar(
+      initial: memberInitial(item.senderId),
+      size: 34,
+    );
     final content = Flexible(
       child: Column(
         crossAxisAlignment: isMine
@@ -76,14 +77,14 @@ class FeedItemView extends StatelessWidget {
           child: _Bubble(text: text, isMine: isMine),
         ),
       ),
-      PhotoMessage(:final placeholder, :final caption) => GestureDetector(
+      PhotoMessage(:final mediaUrl, :final caption) => GestureDetector(
         onLongPress: onLongPress,
         child: Column(
           crossAxisAlignment: isMine
               ? CrossAxisAlignment.end
               : CrossAxisAlignment.start,
           children: [
-            _PhotoWell(label: placeholder, width: maxWidth * 0.84),
+            _PhotoWell(mediaUrl: mediaUrl, width: maxWidth * 0.84),
             if (caption != null) ...[
               const SizedBox(height: 10),
               Text(caption, style: Theme.of(context).textTheme.headlineMedium),
@@ -117,49 +118,52 @@ class FeedItemView extends StatelessWidget {
         isMine,
       )) {
         // Once read, both sides see the same spent marker.
-        (final String at, _) => SecretOpenedBubble(openedAt: at),
+        (final DateTime at, _) => SecretOpenedBubble(
+          openedAt: formatClockTime(at),
+        ),
         (null, true) => SecretSentBubble(duration: duration),
         (null, false) => ConstrainedBox(
           constraints: BoxConstraints(maxWidth: maxWidth * 0.88),
-          child: SecretCard(item: item as SecretMessage, onOpen: onOpenSecret),
+          child: SecretCard(
+            item: item as SecretMessage,
+            senderName: memberName(item.senderId),
+            onOpen: onOpenSecret,
+          ),
         ),
       },
       StatusNote() => const SizedBox.shrink(),
     };
   }
 
-  /// Timestamp line plus any reaction chip left on the message.
+  /// Timestamp line plus any reactions left on the message.
   List<Widget> _trailing(bool isMine) {
-    final (time, reaction, delivered) = switch (item) {
-      TextMessage(:final time, :final reaction, :final delivered) => (
-        time,
-        reaction,
-        delivered,
-      ),
-      PhotoMessage(:final time, :final reaction) => (time, reaction, false),
-      EmojiMessage(:final time) => (time, null, false),
-      SecretMessage(:final time, :final delivered, :final openedAt) => (
-        openedAt == null ? time : '$time · Opened',
-        null,
-        isMine && delivered && openedAt == null,
-      ),
-      StatusNote() => ('', null, false),
+    final clock = formatClockTime(item.createdAt);
+    final time = switch (item) {
+      SecretMessage(:final openedAt) when openedAt != null => '$clock · Opened',
+      _ => clock,
     };
 
     return [
       const SizedBox(height: 6),
       Builder(
         builder: (context) => Text(
-          delivered ? '$time · Delivered' : time,
+          time,
           textAlign: isMine ? TextAlign.right : TextAlign.left,
           style: Theme.of(
             context,
           ).textTheme.titleSmall!.copyWith(color: context.palette.inkFaint),
         ),
       ),
-      if (reaction != null) ...[
+      if (item.reactions.isNotEmpty) ...[
         const SizedBox(height: 6),
-        _ReactionChip(emoji: reaction),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          spacing: 4,
+          children: [
+            for (final emoji in item.reactions.values)
+              _ReactionChip(emoji: emoji),
+          ],
+        ),
       ],
     ];
   }
@@ -195,11 +199,11 @@ class _Bubble extends StatelessWidget {
   }
 }
 
-/// Stand-in for an attached photo until real image handling exists.
+/// Stand-in for an attached photo until real image handling exists (**P2-13**).
 class _PhotoWell extends StatelessWidget {
-  const _PhotoWell({required this.label, required this.width});
+  const _PhotoWell({required this.mediaUrl, required this.width});
 
-  final String label;
+  final String? mediaUrl;
   final double width;
 
   @override
@@ -223,7 +227,7 @@ class _PhotoWell extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
-          label,
+          mediaUrl ?? 'photo',
           style: theme.textTheme.titleSmall!.copyWith(
             fontFamily: 'Menlo',
             color: theme.colorScheme.onSurfaceVariant,

@@ -3,20 +3,23 @@ import 'package:flutter/services.dart';
 
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
-import '../../feed/models/feed_item.dart';
 
 /// Typed confirmation before erasing the pair. Deliberately awkward: the word
 /// must be typed exactly before the destructive button becomes live.
 class UnpairSheet extends StatefulWidget {
-  const UnpairSheet({super.key, required this.partner, required this.streak});
+  const UnpairSheet({
+    super.key,
+    required this.partnerName,
+    required this.streak,
+  });
 
-  final Person partner;
+  final String partnerName;
   final int streak;
 
   /// Resolves true only if the user confirmed.
   static Future<bool?> show(
     BuildContext context, {
-    required Person partner,
+    required String partnerName,
     required int streak,
   }) {
     return showModalBottomSheet<bool>(
@@ -24,7 +27,7 @@ class UnpairSheet extends StatefulWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.22),
-      builder: (_) => UnpairSheet(partner: partner, streak: streak),
+      builder: (_) => UnpairSheet(partnerName: partnerName, streak: streak),
     );
   }
 
@@ -84,7 +87,7 @@ class _UnpairSheetState extends State<UnpairSheet> {
                 Text(
                   'Unpairing erases everything you two made here — every note, '
                   'photo, secret, and your ${widget.streak}-day streak. It '
-                  'happens for ${widget.partner.name} at the same moment, and '
+                  'happens for ${widget.partnerName} at the same moment, and '
                   'there is no undo.',
                   style: theme.textTheme.headlineMedium!.copyWith(
                     height: 1.45,

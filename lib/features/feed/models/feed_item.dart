@@ -1,18 +1,3 @@
-/// The two people in a pair. The feed renders relative to whichever one is
-/// currently viewing, so the same thread produces both the sender and the
-/// recipient layouts.
-enum Person {
-  maya('Maya', 'M'),
-  devon('Devon', 'D');
-
-  const Person(this.name, this.initial);
-
-  final String name;
-  final String initial;
-
-  Person get other => this == maya ? devon : maya;
-}
-
 /// How long the recipient gets with a secret once they open it.
 enum SecretDuration {
   tenSeconds('10 seconds', Duration(seconds: 10)),
@@ -24,6 +9,9 @@ enum SecretDuration {
   final String label;
   final Duration? window;
 
+  /// Wire form for `revealDurationSeconds`. Null means "until they close it".
+  int? get seconds => window?.inSeconds;
+
   /// Short form used on the sent-secret bubble, e.g. "they get 30s with it".
   String get shortLabel => switch (this) {
     tenSeconds => 'they get 10s with it',
@@ -32,105 +20,206 @@ enum SecretDuration {
   };
 }
 
+/// Whether a secret is still sealed or has been spent.
+///
+/// The body never lives here — it sits in `secretBodies/{itemId}` so a Function
+/// can hard delete it (**P3-01**) while this tombstone survives.
+enum SecretState { sealed, opened }
+
 sealed class FeedItem {
-  const FeedItem();
+  const FeedItem({
+    required this.id,
+    required this.senderId,
+    required this.createdAt,
+    this.reactions = const {},
+  });
+
+  /// Firestore document id. Locally-composed items carry a client-side id until
+  /// the write lands.
+  final String id;
+
+  /// Author's uid. The feed decides sent-vs-received by comparing this against
+  /// the signed-in user, which is why there is no `Person` here any more.
+  final String senderId;
+
+  final DateTime createdAt;
+
+  /// uid → emoji. Brief §9 requires plural reactions on every item type.
+  final Map<String, String> reactions;
 }
 
 /// A plain written message.
 class TextMessage extends FeedItem {
   const TextMessage({
-    required this.sender,
+    required super.id,
+    required super.senderId,
+    required super.createdAt,
     required this.text,
-    required this.time,
-    this.reaction,
-    this.delivered = false,
+    super.reactions,
   });
 
-  final Person sender;
   final String text;
-  final String time;
-  final String? reaction;
-  final bool delivered;
+
+  @override
+  bool operator ==(Object other) =>
+      other is TextMessage &&
+      other.id == id &&
+      other.senderId == senderId &&
+      other.createdAt == createdAt &&
+      other.text == text &&
+      _mapEquals(other.reactions, reactions);
+
+  @override
+  int get hashCode => Object.hash(id, senderId, createdAt, text);
 }
 
 /// A photo with an optional caption underneath.
 class PhotoMessage extends FeedItem {
   const PhotoMessage({
-    required this.sender,
-    required this.placeholder,
-    required this.time,
+    required super.id,
+    required super.senderId,
+    required super.createdAt,
+    this.mediaUrl,
     this.caption,
-    this.reaction,
+    super.reactions,
   });
 
-  final Person sender;
-
-  /// Label shown in the photo well until real image loading exists.
-  final String placeholder;
-  final String time;
+  /// Cloud Storage download URL. Null while the upload is still in flight.
+  final String? mediaUrl;
   final String? caption;
-  final String? reaction;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PhotoMessage &&
+      other.id == id &&
+      other.senderId == senderId &&
+      other.createdAt == createdAt &&
+      other.mediaUrl == mediaUrl &&
+      other.caption == caption &&
+      _mapEquals(other.reactions, reactions);
+
+  @override
+  int get hashCode => Object.hash(id, senderId, createdAt, mediaUrl, caption);
 }
 
-/// A single emoji sent large, optionally tapped repeatedly ("x14").
+/// A single emoji sent large, optionally tapped repeatedly ("×14").
 class EmojiMessage extends FeedItem {
   const EmojiMessage({
-    required this.sender,
+    required super.id,
+    required super.senderId,
+    required super.createdAt,
     required this.emoji,
-    required this.time,
     this.count = 1,
+    super.reactions,
   });
 
-  final Person sender;
   final String emoji;
-  final String time;
   final int count;
+
+  @override
+  bool operator ==(Object other) =>
+      other is EmojiMessage &&
+      other.id == id &&
+      other.senderId == senderId &&
+      other.createdAt == createdAt &&
+      other.emoji == emoji &&
+      other.count == count &&
+      _mapEquals(other.reactions, reactions);
+
+  @override
+  int get hashCode => Object.hash(id, senderId, createdAt, emoji, count);
 }
 
 /// Ambient centred line, e.g. "is heads down till four".
+///
+/// A mood update writes twice: the live value onto `couples/{id}`, and this
+/// scrollback record into `items/`.
 class StatusNote extends FeedItem {
-  const StatusNote({required this.text, this.icon});
+  const StatusNote({
+    required super.id,
+    required super.senderId,
+    required super.createdAt,
+    required this.text,
+    this.icon,
+    super.reactions,
+  });
 
   final String text;
   final String? icon;
+
+  @override
+  bool operator ==(Object other) =>
+      other is StatusNote &&
+      other.id == id &&
+      other.senderId == senderId &&
+      other.createdAt == createdAt &&
+      other.text == text &&
+      other.icon == icon &&
+      _mapEquals(other.reactions, reactions);
+
+  @override
+  int get hashCode => Object.hash(id, senderId, createdAt, text, icon);
 }
 
-/// A sealed message. The recipient sees a locked card they press and hold to
-/// open; the sender sees a confirmation bubble instead.
+/// The tombstone for a sealed message.
+///
+/// Carries no body by design: the content lives in `secretBodies/{itemId}` so
+/// deleting it is a server-side operation (**P3-01**) that leaves this record
+/// intact. There is deliberately no `markOpened()` — a client that flips its own
+/// copy to opened has not opened anything.
 class SecretMessage extends FeedItem {
   const SecretMessage({
-    required this.sender,
-    required this.time,
+    required super.id,
+    required super.senderId,
+    required super.createdAt,
     required this.duration,
-    this.body = '',
-    this.delivered = true,
+    this.secretState = SecretState.sealed,
     this.openedAt,
     this.heldFullCountdown = false,
+    super.reactions,
   });
 
-  final Person sender;
-  final String time;
   final SecretDuration duration;
-  final String body;
-  final bool delivered;
+  final SecretState secretState;
 
-  /// Set once the recipient has opened it. From that point the body is gone
-  /// for both people and only the "Opened" marker remains.
-  final String? openedAt;
+  /// When the recipient opened it. Null while sealed.
+  final DateTime? openedAt;
 
   /// Whether they stayed with it until the countdown emptied.
   final bool heldFullCountdown;
 
-  bool get isOpened => openedAt != null;
+  bool get isOpened => secretState == SecretState.opened;
 
-  SecretMessage markOpened(String at, {required bool heldFull}) =>
-      SecretMessage(
-        sender: sender,
-        time: time,
-        duration: duration,
-        // The body is deliberately dropped — it does not survive opening.
-        delivered: delivered,
-        openedAt: at,
-        heldFullCountdown: heldFull,
-      );
+  @override
+  bool operator ==(Object other) =>
+      other is SecretMessage &&
+      other.id == id &&
+      other.senderId == senderId &&
+      other.createdAt == createdAt &&
+      other.duration == duration &&
+      other.secretState == secretState &&
+      other.openedAt == openedAt &&
+      other.heldFullCountdown == heldFullCountdown &&
+      _mapEquals(other.reactions, reactions);
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    senderId,
+    createdAt,
+    duration,
+    secretState,
+    openedAt,
+    heldFullCountdown,
+  );
+}
+
+/// Shallow map equality. Avoids a `package:collection` import for one use.
+bool _mapEquals(Map<String, String> a, Map<String, String> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (final entry in a.entries) {
+    if (b[entry.key] != entry.value) return false;
+  }
+  return true;
 }

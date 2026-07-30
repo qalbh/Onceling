@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/theme_colors.dart';
 import '../../theme/theme_glyphs.dart';
-import '../feed/models/feed_item.dart';
 
 /// A mood is one emoji plus a short line, shown to the other person as an
 /// ambient note in the thread rather than a notification.
@@ -31,14 +30,14 @@ const moodEmoji = [
 
 /// Bottom sheet for setting your own mood.
 class MoodSheet extends StatefulWidget {
-  const MoodSheet({super.key, required this.partner, this.initial});
+  const MoodSheet({super.key, required this.partnerName, this.initial});
 
-  final Person partner;
+  final String partnerName;
   final Mood? initial;
 
   static Future<Mood?> show(
     BuildContext context, {
-    required Person partner,
+    required String partnerName,
     Mood? initial,
   }) {
     return showModalBottomSheet<Mood>(
@@ -46,7 +45,7 @@ class MoodSheet extends StatefulWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.22),
-      builder: (_) => MoodSheet(partner: partner, initial: initial),
+      builder: (_) => MoodSheet(partnerName: partnerName, initial: initial),
     );
   }
 
@@ -123,7 +122,7 @@ class _MoodSheetState extends State<MoodSheet> {
                 const SizedBox(height: 14),
                 Center(
                   child: Text(
-                    '${widget.partner.name} gets a quiet nudge — no badge, '
+                    '${widget.partnerName} gets a quiet nudge — no badge, '
                     'no sound.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium!.copyWith(

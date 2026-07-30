@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
+import '../../../common/time_format.dart';
 import '../../../theme/theme_glyphs.dart';
 import '../models/feed_item.dart';
 
@@ -107,9 +108,17 @@ class SecretOpenedBubble extends StatelessWidget {
 /// The sealed card in the thread. Holding it fills the line; when the line is
 /// full the reveal takes over the screen.
 class SecretCard extends StatefulWidget {
-  const SecretCard({super.key, required this.item, this.onOpen});
+  const SecretCard({
+    super.key,
+    required this.item,
+    required this.senderName,
+    this.onOpen,
+  });
 
   final SecretMessage item;
+
+  /// Display name for `item.senderId`, resolved by the caller.
+  final String senderName;
 
   /// Fired once the hold completes.
   final VoidCallback? onOpen;
@@ -167,12 +176,12 @@ class _SecretCardState extends State<SecretCard>
             ),
             const SizedBox(height: 18),
             Text(
-              'A secret from ${widget.item.sender.name}',
+              'A secret from ${widget.senderName}',
               style: AppTheme.wordmark(context, 21),
             ),
             const SizedBox(height: 8),
             Text(
-              'sent ${widget.item.time}',
+              'sent ${formatClockTime(widget.item.createdAt)}',
               style: theme.textTheme.titleLarge!.copyWith(
                 color: palette.inkFaint,
               ),

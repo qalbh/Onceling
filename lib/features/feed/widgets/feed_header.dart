@@ -3,13 +3,14 @@ import 'package:flutter/material.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
 import '../../../theme/theme_glyphs.dart';
-import '../models/feed_item.dart';
 
 /// Sage circle carrying a person's initial.
 class PersonAvatar extends StatelessWidget {
-  const PersonAvatar({super.key, required this.person, this.size = 36});
+  const PersonAvatar({super.key, required this.initial, this.size = 36});
 
-  final Person person;
+  /// Single display letter. Resolved from a uid by the caller — the avatar has
+  /// no business knowing who anyone is.
+  final String initial;
   final double size;
 
   @override
@@ -25,7 +26,7 @@ class PersonAvatar extends StatelessWidget {
         shape: BoxShape.circle,
       ),
       child: Text(
-        person.initial,
+        initial,
         style: AppTheme.wordmark(
           context,
           size * 0.45,
@@ -42,7 +43,7 @@ class FeedHeader extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.streak,
-    required this.viewer,
+    required this.viewerInitial,
     this.onOpenSettings,
     this.onSwapViewer,
   });
@@ -50,7 +51,7 @@ class FeedHeader extends StatelessWidget {
   final String title;
   final String subtitle;
   final int streak;
-  final Person viewer;
+  final String viewerInitial;
 
   /// Tapping the avatar opens settings.
   final VoidCallback? onOpenSettings;
@@ -89,7 +90,7 @@ class FeedHeader extends StatelessWidget {
           GestureDetector(
             onTap: onOpenSettings,
             onLongPress: onSwapViewer,
-            child: PersonAvatar(person: viewer),
+            child: PersonAvatar(initial: viewerInitial),
           ),
         ],
       ),

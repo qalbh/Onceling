@@ -3,24 +3,23 @@ import 'package:flutter/material.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
 import '../../../theme/theme_glyphs.dart';
-import '../../feed/models/feed_item.dart';
 
 /// Shown to the sender the moment their secret is opened.
 class SecretOpenedDialog extends StatelessWidget {
   const SecretOpenedDialog({
     super.key,
-    required this.reader,
+    required this.readerName,
     required this.openedAt,
     required this.heldFullCountdown,
   });
 
-  final Person reader;
+  final String readerName;
   final String openedAt;
   final bool heldFullCountdown;
 
   static Future<void> show(
     BuildContext context, {
-    required Person reader,
+    required String readerName,
     required String openedAt,
     required bool heldFullCountdown,
   }) {
@@ -28,7 +27,7 @@ class SecretOpenedDialog extends StatelessWidget {
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.28),
       builder: (_) => SecretOpenedDialog(
-        reader: reader,
+        readerName: readerName,
         openedAt: openedAt,
         heldFullCountdown: heldFullCountdown,
       ),
@@ -59,10 +58,7 @@ class SecretOpenedDialog extends StatelessWidget {
               child: Glyph('🔒', size: context.glyphs.openedSeal),
             ),
             const SizedBox(height: 20),
-            Text(
-              '${reader.name} read it.',
-              style: AppTheme.wordmark(context, 26),
-            ),
+            Text('$readerName read it.', style: AppTheme.wordmark(context, 26)),
             const SizedBox(height: 14),
             Text(
               heldFullCountdown

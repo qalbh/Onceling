@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../common/time_format.dart';
 import '../../../theme/theme_colors.dart';
 import '../../compose/compose_sheet.dart';
 import '../../mood/mood_sheet.dart';
@@ -14,15 +15,16 @@ import '../widgets/feed_header.dart';
 import '../widgets/feed_item_view.dart';
 import '../widgets/reaction_tray.dart';
 
-/// The shared thread. Rendered from [viewer]'s side — tapping the header
+/// The shared thread. Rendered from [viewerId]'s side — tapping the header
 /// avatar swaps perspective, which is how the sender and recipient layouts in
 /// the mocks are both reachable without two accounts.
 class FeedScreen extends StatefulWidget {
-  const FeedScreen({super.key, this.viewer = Person.devon});
+  const FeedScreen({super.key, this.viewerId = devonUid});
 
   static const routeName = '/feed';
 
-  final Person viewer;
+  /// uid of the signed-in reader. Comes from the auth provider at **P2-07**.
+  final String viewerId;
 
   @override
   State<FeedScreen> createState() => _FeedScreenState();
@@ -32,8 +34,15 @@ class _FeedScreenState extends State<FeedScreen> {
   final _burstKey = GlobalKey<EmojiBurstLayerState>();
   final _scrollController = ScrollController();
 
-  late Person _viewer = widget.viewer;
+  late String _viewerId = widget.viewerId;
   late List<FeedItem> _items = sampleThread();
+
+  /// Stands in for the `secretBodies` collection until **P3-01**.
+  final Map<String, String> _secretBodies = {...sampleSecretBodies};
+
+  /// Client-side id for an item that has not been written yet. Firestore
+  /// assigns the real one on write (**P2-12**).
+  String _newItemId() => 'local-${DateTime.now().microsecondsSinceEpoch}';
 
   @override
   void initState() {
@@ -67,23 +76,27 @@ class _FeedScreenState extends State<FeedScreen> {
     if (result == null || !mounted) return;
 
     setState(() {
+      final id = _newItemId();
       _items = [
         ..._items,
         if (result.secretDuration case final duration?)
           SecretMessage(
-            sender: _viewer,
-            time: 'now',
+            id: id,
+            senderId: _viewerId,
+            createdAt: DateTime.now(),
             duration: duration,
-            body: result.text,
           )
         else
           TextMessage(
-            sender: _viewer,
+            id: id,
+            senderId: _viewerId,
+            createdAt: DateTime.now(),
             text: result.text,
-            time: 'now',
-            delivered: true,
           ),
       ];
+      // Bodies live apart from the tombstone; this stands in for the
+      // `secretBodies` write until **P3-01**.
+      if (result.isSecret) _secretBodies[id] = result.text;
     });
     await _scrollToEnd();
   }
@@ -93,7 +106,12 @@ class _FeedScreenState extends State<FeedScreen> {
     setState(() {
       _items = [
         ..._items,
-        EmojiMessage(sender: _viewer, emoji: emoji, time: 'now'),
+        EmojiMessage(
+          id: _newItemId(),
+          senderId: _viewerId,
+          createdAt: DateTime.now(),
+          emoji: emoji,
+        ),
       ];
     });
     _scrollToEnd();
@@ -105,30 +123,49 @@ class _FeedScreenState extends State<FeedScreen> {
     final secret = _items[index];
     if (secret is! SecretMessage || secret.isOpened) return;
 
-    final result = await SecretRevealScreen.show(context, secret);
+    final result = await SecretRevealScreen.show(
+      context,
+      secret,
+      senderName: memberName(secret.senderId),
+      body: _secretBodies[secret.id] ?? '',
+    );
     if (result == null || !mounted) return;
 
-    const openedAt = '9:31 AM';
+    // Fixed while the thread is mock data. **P3-01** replaces this with the
+    // server timestamp the deletion Function writes.
+    final openedAt = DateTime(2026, 7, 30, 9, 31);
     setState(() {
       _items = [..._items];
-      _items[index] = secret.markOpened(
-        openedAt,
-        heldFull: result.heldFullCountdown,
+      // Rebuilt rather than mutated: opening is a server operation, so the
+      // client has no `markOpened()` to call.
+      _items[index] = SecretMessage(
+        id: secret.id,
+        senderId: secret.senderId,
+        createdAt: secret.createdAt,
+        duration: secret.duration,
+        secretState: SecretState.opened,
+        openedAt: openedAt,
+        heldFullCountdown: result.heldFullCountdown,
+        reactions: secret.reactions,
       );
+      _secretBodies.remove(secret.id);
     });
 
     // The sender's confirmation. Both sides are on this one device, so it is
     // shown here directly rather than pushed from a server.
     await SecretOpenedDialog.show(
       context,
-      reader: _viewer,
-      openedAt: openedAt,
+      readerName: memberName(_viewerId),
+      openedAt: formatClockTime(openedAt),
       heldFullCountdown: result.heldFullCountdown,
     );
   }
 
   Future<void> _setMood() async {
-    final mood = await MoodSheet.show(context, partner: _viewer.other);
+    final mood = await MoodSheet.show(
+      context,
+      partnerName: memberName(partnerOf(_viewerId)),
+    );
     if (mood == null || !mounted) return;
 
     setState(() {
@@ -136,8 +173,12 @@ class _FeedScreenState extends State<FeedScreen> {
         for (final item in _items)
           if (item is StatusNote)
             StatusNote(
+              id: item.id,
+              senderId: item.senderId,
+              createdAt: item.createdAt,
               text: mood.note.isEmpty ? 'set a mood' : mood.note,
               icon: mood.emoji,
+              reactions: item.reactions,
             )
           else
             item,
@@ -151,33 +192,26 @@ class _FeedScreenState extends State<FeedScreen> {
 
     setState(() {
       _items = [..._items];
-      _items[index] = switch (_items[index]) {
-        TextMessage(
-          :final sender,
-          :final text,
-          :final time,
-          :final delivered,
-        ) =>
-          TextMessage(
-            sender: sender,
-            text: text,
-            time: time,
-            delivered: delivered,
-            reaction: emoji,
-          ),
-        PhotoMessage(
-          :final sender,
-          :final placeholder,
-          :final time,
-          :final caption,
-        ) =>
-          PhotoMessage(
-            sender: sender,
-            placeholder: placeholder,
-            time: time,
-            caption: caption,
-            reaction: emoji,
-          ),
+      final target = _items[index];
+      // Reactions are a map keyed by uid, so reacting twice replaces rather
+      // than appends, and every item type carries them (brief §9).
+      final reactions = {...target.reactions, _viewerId: emoji};
+      _items[index] = switch (target) {
+        TextMessage(:final text) => TextMessage(
+          id: target.id,
+          senderId: target.senderId,
+          createdAt: target.createdAt,
+          text: text,
+          reactions: reactions,
+        ),
+        PhotoMessage(:final mediaUrl, :final caption) => PhotoMessage(
+          id: target.id,
+          senderId: target.senderId,
+          createdAt: target.createdAt,
+          mediaUrl: mediaUrl,
+          caption: caption,
+          reactions: reactions,
+        ),
         final other => other,
       };
     });
@@ -197,13 +231,14 @@ class _FeedScreenState extends State<FeedScreen> {
                   title: 'Maya & Devon',
                   subtitle: '994 days · since 4 November 2023',
                   streak: 47,
-                  viewer: _viewer,
+                  viewerInitial: memberInitial(_viewerId),
                   onOpenSettings: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => SettingsScreen(viewer: _viewer),
+                      builder: (_) => SettingsScreen(viewerId: _viewerId),
                     ),
                   ),
-                  onSwapViewer: () => setState(() => _viewer = _viewer.other),
+                  onSwapViewer: () =>
+                      setState(() => _viewerId = partnerOf(_viewerId)),
                 ),
               ),
               Expanded(
@@ -213,7 +248,7 @@ class _FeedScreenState extends State<FeedScreen> {
                   itemCount: _items.length,
                   itemBuilder: (context, index) => FeedItemView(
                     item: _items[index],
-                    viewer: _viewer,
+                    viewerId: _viewerId,
                     onLongPress: () => _react(index),
                     onOpenSecret: () => _openSecret(index),
                     onTapStatus: _setMood,
@@ -223,9 +258,7 @@ class _FeedScreenState extends State<FeedScreen> {
               SafeArea(
                 top: false,
                 child: EmojiTray(
-                  emoji: _viewer == Person.maya
-                      ? mayaTrayEmoji
-                      : devonTrayEmoji,
+                  emoji: _viewerId == mayaUid ? mayaTrayEmoji : devonTrayEmoji,
                   onCompose: _compose,
                   onEmoji: _sendEmoji,
                 ),

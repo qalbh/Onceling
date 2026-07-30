@@ -1,41 +1,80 @@
 import 'feed_item.dart';
 
+/// Stand-in uids until real accounts land (**M-02**). Firestore stores a uid on
+/// every item; these are what the mock thread uses in place of one.
+const mayaUid = 'uid-maya';
+const devonUid = 'uid-devon';
+
+/// Display identity for the mock pair. Replaced by real profile documents at
+/// **M-02** — until then the view layer resolves a uid through here rather than
+/// the model carrying names it should never have owned.
+const mockMembers = <String, ({String name, String initial})>{
+  mayaUid: (name: 'Maya', initial: 'M'),
+  devonUid: (name: 'Devon', initial: 'D'),
+};
+
+String memberName(String uid) => mockMembers[uid]?.name ?? 'Them';
+
+String memberInitial(String uid) => mockMembers[uid]?.initial ?? '?';
+
+/// The other half of the pair. Real pairing resolves this from the couple
+/// document; the mock has exactly two members.
+String partnerOf(String uid) => uid == mayaUid ? devonUid : mayaUid;
+
+/// Fixed clock times so the mock thread reads the way the designs do.
+DateTime _at(int hour, int minute) => DateTime(2026, 7, 30, hour, minute);
+
 /// The thread shown in the mocks, used until a backend exists.
 List<FeedItem> sampleThread() => [
-  const TextMessage(
-    sender: Person.maya,
+  TextMessage(
+    id: 'sample-1',
+    senderId: mayaUid,
+    createdAt: _at(8, 12),
     text: 'thought of you immediately.',
-    time: '8:12 AM',
-    reaction: '😂',
+    reactions: const {devonUid: '😂'},
   ),
-  const TextMessage(
-    sender: Person.devon,
+  TextMessage(
+    id: 'sample-2',
+    senderId: devonUid,
+    createdAt: _at(8, 15),
     text:
         'gooseee. I am in a room with nine people and I just laughed out loud, '
         'thank you',
-    time: '8:15 AM',
   ),
-  const PhotoMessage(
-    sender: Person.maya,
-    placeholder: 'photo — the goose machine',
+  PhotoMessage(
+    id: 'sample-3',
+    senderId: mayaUid,
+    createdAt: _at(8, 16),
     caption: 'Exhibit A.',
-    time: '8:16 AM',
-    reaction: '🥹',
+    reactions: const {devonUid: '🥹'},
   ),
-  const EmojiMessage(
-    sender: Person.devon,
+  EmojiMessage(
+    id: 'sample-4',
+    senderId: devonUid,
+    createdAt: _at(8, 17),
     emoji: '🫶',
     count: 14,
-    time: '8:17 AM',
   ),
-  const StatusNote(text: 'is heads down till four', icon: '🎧'),
-  const SecretMessage(
-    sender: Person.maya,
-    time: '9:26 AM',
+  StatusNote(
+    id: 'sample-5',
+    senderId: devonUid,
+    createdAt: _at(9, 0),
+    text: 'is heads down till four',
+    icon: '🎧',
+  ),
+  SecretMessage(
+    id: 'sample-6',
+    senderId: mayaUid,
+    createdAt: _at(9, 26),
     duration: SecretDuration.thirtySeconds,
-    body: 'I already booked the thing for your birthday. Act surprised.',
   ),
 ];
+
+/// Body for the mock secret. Real bodies live in `secretBodies/{itemId}` and are
+/// fetched only at reveal time; this stands in until **P3-01**.
+const sampleSecretBodies = <String, String>{
+  'sample-6': 'I already booked the thing for your birthday. Act surprised.',
+};
 
 /// Quick-reaction emoji in the bottom tray. Each person keeps their own set.
 const mayaTrayEmoji = ['❤️', '😂', '🥹', '🔥', '🫶', '🌙', '🧋', '🐈'];

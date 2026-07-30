@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:couple_app/features/feed/models/feed_item.dart';
+import 'package:couple_app/features/feed/models/sample_thread.dart';
 import 'package:couple_app/features/feed/screens/feed_screen.dart';
 import 'package:couple_app/features/feed/widgets/feed_header.dart';
 import 'package:couple_app/theme/app_theme.dart';
 
-Future<void> pumpFeed(
-  WidgetTester tester, {
-  Person viewer = Person.devon,
-}) async {
+Future<void> pumpFeed(WidgetTester tester, {String viewerId = devonUid}) async {
   tester.view.physicalSize = const Size(1170, 2532);
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.reset);
@@ -18,7 +15,7 @@ Future<void> pumpFeed(
       theme: AppTheme.light(),
       // Key by viewer so re-pumping in one test builds fresh state rather than
       // reusing the previous FeedScreen's.
-      home: FeedScreen(key: ValueKey(viewer), viewer: viewer),
+      home: FeedScreen(key: ValueKey(viewerId), viewerId: viewerId),
     ),
   );
   await tester.pumpAndSettle();
@@ -71,7 +68,7 @@ void main() {
     expect(find.text('Secret sent'), findsNothing);
 
     // Maya sent it, so she sees the sent bubble instead.
-    await pumpFeed(tester, viewer: Person.maya);
+    await pumpFeed(tester, viewerId: mayaUid);
     expect(find.text('Secret sent'), findsOneWidget);
     expect(find.text('they get 30s with it'), findsOneWidget);
     expect(find.text('A secret from Maya'), findsNothing);

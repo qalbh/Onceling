@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:couple_app/features/auth/screens/sign_in_screen.dart';
-import 'package:couple_app/features/feed/models/feed_item.dart';
+import 'package:couple_app/features/feed/models/sample_thread.dart';
 import 'package:couple_app/features/settings/screens/settings_screen.dart';
 import 'package:couple_app/main.dart';
 
@@ -16,7 +16,7 @@ Future<void> pumpSettings(WidgetTester tester) async {
   final navigator = tester.state<NavigatorState>(find.byType(Navigator));
   navigator.push(
     MaterialPageRoute<void>(
-      builder: (_) => const SettingsScreen(viewer: Person.maya),
+      builder: (_) => const SettingsScreen(viewerId: mayaUid),
     ),
   );
   await tester.pumpAndSettle();

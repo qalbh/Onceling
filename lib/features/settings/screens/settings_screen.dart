@@ -5,7 +5,6 @@ import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
 import '../../../theme/theme_glyphs.dart';
 import '../../auth/screens/sign_in_screen.dart';
-import '../../feed/models/feed_item.dart';
 import '../../feed/models/sample_thread.dart';
 import '../../feed/widgets/feed_header.dart';
 import '../../feed/widgets/reaction_tray.dart';
@@ -15,7 +14,7 @@ import '../widgets/unpair_sheet.dart';
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
-    this.viewer = Person.maya,
+    this.viewerId = mayaUid,
     this.coupleName = 'Maya & Devon',
     this.anniversary = '4 November 2023',
     this.streak = 47,
@@ -23,7 +22,7 @@ class SettingsScreen extends StatefulWidget {
 
   static const routeName = '/settings';
 
-  final Person viewer;
+  final String viewerId;
   final String coupleName;
   final String anniversary;
   final int streak;
@@ -34,14 +33,14 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late final List<String> _favourites = List.of(
-    widget.viewer == Person.maya ? mayaTrayEmoji : devonTrayEmoji,
+    widget.viewerId == mayaUid ? mayaTrayEmoji : devonTrayEmoji,
   );
 
   bool _secretAlerts = true;
   bool _screenshotAlerts = true;
   _NudgeLevel _nudges = _NudgeLevel.quiet;
 
-  Person get _partner => widget.viewer.other;
+  String get _partnerId => partnerOf(widget.viewerId);
 
   Future<void> _swapFavourite(int index) async {
     final picked = await ReactionTray.show(context, title: 'Pick a favourite');
@@ -52,7 +51,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _unpair() async {
     final confirmed = await UnpairSheet.show(
       context,
-      partner: _partner,
+      partnerName: memberName(_partnerId),
       streak: widget.streak,
     );
     if (confirmed != true || !mounted) return;
@@ -110,7 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SettingsCard(
               children: [
                 SettingsRow(
-                  label: 'Unpair from ${_partner.name}',
+                  label: 'Unpair from ${memberName(_partnerId)}',
                   destructive: true,
                   onTap: _unpair,
                 ),
@@ -162,15 +161,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Row(
       spacing: 18,
       children: [
-        PersonAvatar(person: widget.viewer, size: 78),
+        PersonAvatar(initial: memberInitial(widget.viewerId), size: 78),
         Flexible(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.viewer.name, style: AppTheme.wordmark(context, 26)),
+              Text(
+                memberName(widget.viewerId),
+                style: AppTheme.wordmark(context, 26),
+              ),
               const SizedBox(height: 4),
               Text(
-                'paired with ${_partner.name}',
+                'paired with ${memberName(_partnerId)}',
                 style: Theme.of(context).textTheme.bodyLarge!.copyWith(
                   color: context.palette.inkFaint,
                 ),

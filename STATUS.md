@@ -2,7 +2,7 @@
 
 **Phase 2 of 4 · Last updated: 2026-07-31**
 
-**Now:** P2-06 — mapper layer
+**Now:** P2-07 — add Riverpod; auth and couple providers
 
 ---
 
@@ -102,7 +102,12 @@ there is data.
       *Auth 9099, Functions 5001, Firestore 8080, UI 4000. Functions scaffolded in
       TypeScript. `firestore.rules` and `firestore.indexes.json` created and
       registered.*
-- [ ] **P2-06** Mapper layer — sealed `FeedItem` ⟷ flat `items` document (brief §9)
+- [x] **P2-06** Mapper layer — sealed `FeedItem` ⟷ flat `items` document (brief §9)
+      *`time: String` → `createdAt: DateTime`; `Person` deleted in favour of
+      `senderId`; `placeholder` → `mediaUrl`; singular `reaction` → `reactions`
+      map on all five types; `SecretMessage.body` and `markOpened()` removed —
+      bodies live in `secretBodies/`, deletion is **P3-01**. No `isSecret` field:
+      `type` carries that fact alone.*
 - [ ] **P2-07** Add Riverpod (no codegen initially); auth and couple providers
 - [ ] **P2-08** Six-character code generation with a uniqueness lookup document
 - [ ] **P2-09** **Pairing transaction** — callable Function, atomic, idempotent,
@@ -116,7 +121,10 @@ there is data.
 - [ ] **P2-16** Upgrade **dev** to Blaze; set a $5 budget alert.
       *Needed to deploy Functions. The emulator runs them locally on Spark, so
       build and test P2-09 first and upgrade only when you deploy.*
-- [ ] **P2-17** Unit tests for the mapper layer — round-trip every `FeedItem` subtype
+- [x] **P2-17** Unit tests for the mapper layer — round-trip every `FeedItem` subtype
+      *21 tests: every subtype, null `mediaUrl`/`caption`, empty and multi-person
+      reactions, until-closed duration, sealed vs opened, count > 1, unknown type
+      and unknown duration both throw.*
 - [ ] **P2-18** Unit tests for the pairing transaction — concurrent claim, double tap,
       self-pair, already-paired user. *Highest-value test in the project.*
 
@@ -156,7 +164,10 @@ Non-blocking. Fix when convenient.
       (12/12.5, 13/13.5, 14/14.5, 15/15.5, 16/16.5) — parked for a design pass
 - [ ] **D-03** ~1% residual on button label glyphs vs pre-refactor baseline
 - [ ] **D-04** `assets/images/` declared in `pubspec.yaml`, contains only `README.md`
-- [ ] **D-05** `dart format` drift on 16 files from the theming refactor
+- [x] **D-05** `dart format` drift on 16 files from the theming refactor
+- [ ] **D-06** `delivered` dropped from `TextMessage` and `SecretMessage` during
+      **P2-06**. The "· Delivered" suffix no longer renders. Restore as real server
+      state at **P2-12**.
 
 ---
 
