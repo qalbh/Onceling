@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../theme/tandem_glyphs.dart';
+import '../../../theme/theme_glyphs.dart';
 
 /// Overlay layer that throws emoji up the screen, as in the "burst in flight"
 /// mock. Drive it through a [GlobalKey] and call [EmojiBurstLayerState.fire].

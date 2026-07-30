@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../theme/tandem_colors.dart';
+import '../../../theme/theme_colors.dart';
 
 /// White rounded group holding a set of rows, hairlines between them.
 class SettingsCard extends StatelessWidget {
@@ -69,7 +69,7 @@ class SettingsRow extends StatelessWidget {
                 label,
                 style: theme.textTheme.headlineLarge!.copyWith(
                   color: destructive
-                      ? context.tandem.dangerInk
+                      ? context.palette.dangerInk
                       : theme.colorScheme.onSurface,
                 ),
               ),
@@ -78,7 +78,7 @@ class SettingsRow extends StatelessWidget {
               Text(
                 value!,
                 style: theme.textTheme.headlineLarge!.copyWith(
-                  color: context.tandem.inkFaint,
+                  color: context.palette.inkFaint,
                 ),
               ),
           ],
@@ -102,7 +102,7 @@ class SettingsSectionLabel extends StatelessWidget {
         text,
         style: Theme.of(context).textTheme.labelSmall!.copyWith(
           letterSpacing: 1.5,
-          color: context.tandem.inkFaint,
+          color: context.palette.inkFaint,
         ),
       ),
     );

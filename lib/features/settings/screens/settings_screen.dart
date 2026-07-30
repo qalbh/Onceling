@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../common/app_toast.dart';
 import '../../../theme/app_theme.dart';
-import '../../../theme/tandem_colors.dart';
-import '../../../theme/tandem_glyphs.dart';
+import '../../../theme/theme_colors.dart';
+import '../../../theme/theme_glyphs.dart';
 import '../../auth/screens/sign_in_screen.dart';
 import '../../feed/models/feed_item.dart';
 import '../../feed/models/sample_thread.dart';
@@ -125,9 +125,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 26),
             Center(
               child: Text(
-                'Only Us · 1.0',
+                'Onceling · 1.0',
                 style: Theme.of(context).textTheme.bodyMedium!.copyWith(
-                  color: context.tandem.inkFaint,
+                  color: context.palette.inkFaint,
                 ),
               ),
             ),
@@ -173,7 +173,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text(
                 'paired with ${_partner.name}',
                 style: Theme.of(context).textTheme.bodyLarge!.copyWith(
-                  color: context.tandem.inkFaint,
+                  color: context.palette.inkFaint,
                 ),
               ),
             ],
@@ -224,7 +224,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Text(
             'Tap a slot to swap it.',
             style: Theme.of(context).textTheme.titleLarge!.copyWith(
-              color: context.tandem.inkFaint,
+              color: context.palette.inkFaint,
             ),
           ),
         ],

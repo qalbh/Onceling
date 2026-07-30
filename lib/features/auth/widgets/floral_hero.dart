@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../theme/tandem_colors.dart';
+import '../../../theme/theme_colors.dart';
 
 /// The oval watercolor bouquet at the top of the sign-in screen.
 ///
@@ -15,7 +15,7 @@ class FloralHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.tandem;
+    final palette = context.palette;
 
     return AspectRatio(
       aspectRatio: 1.28,
@@ -50,7 +50,7 @@ class _Sprig {
   final _Leaf tone;
 }
 
-/// Foliage and petal tones, resolved from [TandemColors] when painting.
+/// Foliage and petal tones, resolved from [ThemeColors] when painting.
 enum _Leaf { mid, deep, pale }
 
 enum _Petal { blush, deep, pale }
@@ -69,7 +69,7 @@ class _Bloom {
 class _BouquetPainter extends CustomPainter {
   const _BouquetPainter(this.palette);
 
-  final TandemColors palette;
+  final ThemeColors palette;
 
   Color _leaf(_Leaf tone) => switch (tone) {
     _Leaf.mid => palette.leaf,

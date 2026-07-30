@@ -11,8 +11,8 @@ import 'package:flutter/material.dart';
 /// Emoji that carry content — a big-emoji message, a reaction, a mood — stay in
 /// the [TextTheme] and scale normally.
 @immutable
-class TandemGlyphs extends ThemeExtension<TandemGlyphs> {
-  const TandemGlyphs({
+class ThemeGlyphs extends ThemeExtension<ThemeGlyphs> {
+  const ThemeGlyphs({
     required this.heart,
     required this.streakFlame,
     required this.chipLock,
@@ -60,7 +60,7 @@ class TandemGlyphs extends ThemeExtension<TandemGlyphs> {
   final double pickerTile;
 
   @override
-  TandemGlyphs copyWith({
+  ThemeGlyphs copyWith({
     double? heart,
     double? streakFlame,
     double? chipLock,
@@ -73,7 +73,7 @@ class TandemGlyphs extends ThemeExtension<TandemGlyphs> {
     double? revealSeal,
     double? pickerTile,
   }) {
-    return TandemGlyphs(
+    return ThemeGlyphs(
       heart: heart ?? this.heart,
       streakFlame: streakFlame ?? this.streakFlame,
       chipLock: chipLock ?? this.chipLock,
@@ -89,9 +89,9 @@ class TandemGlyphs extends ThemeExtension<TandemGlyphs> {
   }
 
   @override
-  TandemGlyphs lerp(ThemeExtension<TandemGlyphs>? other, double t) {
-    if (other is! TandemGlyphs) return this;
-    return TandemGlyphs(
+  ThemeGlyphs lerp(ThemeExtension<ThemeGlyphs>? other, double t) {
+    if (other is! ThemeGlyphs) return this;
+    return ThemeGlyphs(
       heart: lerpDouble(heart, other.heart, t),
       streakFlame: lerpDouble(streakFlame, other.streakFlame, t),
       chipLock: lerpDouble(chipLock, other.chipLock, t),
@@ -109,8 +109,8 @@ class TandemGlyphs extends ThemeExtension<TandemGlyphs> {
   static double lerpDouble(double a, double b, double t) => a + (b - a) * t;
 }
 
-extension TandemGlyphsX on BuildContext {
-  TandemGlyphs get glyphs => Theme.of(this).extension<TandemGlyphs>()!;
+extension ThemeGlyphsX on BuildContext {
+  ThemeGlyphs get glyphs => Theme.of(this).extension<ThemeGlyphs>()!;
 }
 
 /// Renders a chrome glyph at a fixed size, immune to the user's text scale so

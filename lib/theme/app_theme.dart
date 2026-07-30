@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'tandem_colors.dart';
-import 'tandem_glyphs.dart';
+import 'theme_colors.dart';
+import 'theme_glyphs.dart';
 
-/// Palette for the "Tandem" private-space look: warm paper background,
+/// Palette for the "Onceling" private-space look: warm paper background,
 /// deep olive-charcoal ink and soft sage / blush accents.
 ///
 /// This is the source of truth for raw colour values only. Widgets never read
@@ -169,7 +169,7 @@ abstract final class AppTheme {
     );
   }
 
-  static const _glyphs = TandemGlyphs(
+  static const _glyphs = ThemeGlyphs(
     heart: 19,
     streakFlame: 14,
     chipLock: 15,
@@ -214,7 +214,7 @@ abstract final class AppTheme {
       scheme: scheme,
       scaffold: AppColors.background,
       extensions: const [
-        TandemColors(
+        ThemeColors(
           inkFaint: AppColors.inkFaint,
           disabled: AppColors.disabled,
           sageDisabled: AppColors.sageDisabled,
@@ -279,7 +279,7 @@ abstract final class AppTheme {
       scheme: scheme,
       scaffold: AppColors.darkBackground,
       extensions: const [
-        TandemColors(
+        ThemeColors(
           inkFaint: AppColors.darkInkFaint,
           disabled: AppColors.darkDisabled,
           sageDisabled: AppColors.darkSageDisabled,

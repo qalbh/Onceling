@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../theme/app_theme.dart';
-import '../../../theme/tandem_colors.dart';
-import '../../../theme/tandem_glyphs.dart';
+import '../../../theme/theme_colors.dart';
+import '../../../theme/theme_glyphs.dart';
 import '../../feed/models/feed_item.dart';
 import '../widgets/torn_card.dart';
 
@@ -104,7 +104,7 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: context.tandem.secretScrim.withValues(alpha: 0.94),
+      backgroundColor: context.palette.secretScrim.withValues(alpha: 0.94),
       body: SafeArea(
         // expand: the top bar is the only non-positioned child, so without
         // this the stack would collapse to its height.
@@ -160,7 +160,7 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
             child: Text(
               'ONCE IT OPENS, IT IS GONE',
               style: Theme.of(context).textTheme.labelSmall!.copyWith(
-                color: context.tandem.onScrimFaint,
+                color: context.palette.onScrimFaint,
               ),
             ),
           ),
@@ -172,7 +172,7 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
   /// Stage 11 — the words, then the way out.
   Widget _reading() {
     final theme = Theme.of(context);
-    final palette = context.tandem;
+    final palette = context.palette;
 
     return Padding(
       key: const ValueKey('reading'),
@@ -238,7 +238,7 @@ class _SealedCard extends StatelessWidget {
       constraints: const BoxConstraints(maxWidth: 320),
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 34),
       decoration: BoxDecoration(
-        color: context.tandem.secretPaper,
+        color: context.palette.secretPaper,
         borderRadius: BorderRadius.circular(26),
       ),
       child: Column(
@@ -260,7 +260,7 @@ class _SealedCard extends StatelessWidget {
             textAlign: TextAlign.center,
             // The card is always paper, so it carries its own ink tone.
             style: AppTheme.wordmark(context, 20).copyWith(
-              color: context.tandem.onSecretPaper,
+              color: context.palette.onSecretPaper,
             ),
           ),
         ],
@@ -314,7 +314,7 @@ class _CountdownDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final palette = context.tandem;
+    final palette = context.palette;
     final total = totalSeconds;
 
     return SizedBox(

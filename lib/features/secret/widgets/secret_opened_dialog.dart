@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../theme/app_theme.dart';
-import '../../../theme/tandem_colors.dart';
-import '../../../theme/tandem_glyphs.dart';
+import '../../../theme/theme_colors.dart';
+import '../../../theme/theme_glyphs.dart';
 import '../../feed/models/feed_item.dart';
 
 /// Shown to the sender the moment their secret is opened.
@@ -83,7 +83,7 @@ class SecretOpenedDialog extends StatelessWidget {
               style: theme.textTheme.bodySmall!.copyWith(
                 fontWeight: FontWeight.w600,
                 letterSpacing: 1.4,
-                color: context.tandem.inkFaint,
+                color: context.palette.inkFaint,
               ),
             ),
           ],

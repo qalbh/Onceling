@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
-import '../../theme/tandem_colors.dart';
-import '../../theme/tandem_glyphs.dart';
+import '../../theme/theme_colors.dart';
+import '../../theme/theme_glyphs.dart';
 import '../feed/models/feed_item.dart';
 
 /// What compose hands back when the user sends.
@@ -182,9 +182,9 @@ class _ComposeSheetState extends State<ComposeSheet> {
       child: FilledButton(
         onPressed: _canSend ? _send : null,
         style: FilledButton.styleFrom(
-          backgroundColor: context.tandem.bubbleMine,
+          backgroundColor: context.palette.bubbleMine,
           foregroundColor: theme.colorScheme.onPrimary,
-          disabledBackgroundColor: context.tandem.sageDisabled,
+          disabledBackgroundColor: context.palette.sageDisabled,
           disabledForegroundColor: theme.colorScheme.onPrimary,
           elevation: 0,
           shape: const StadiumBorder(),
@@ -230,7 +230,7 @@ class _ComposeChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final palette = context.tandem;
+    final palette = context.palette;
 
     return GestureDetector(
       onTap: onTap,
@@ -317,7 +317,7 @@ class _TimerPanel extends StatelessWidget {
             'is opened.',
             style: theme.textTheme.titleMedium!.copyWith(
               height: 1.4,
-              color: context.tandem.inkFaint,
+              color: context.palette.inkFaint,
             ),
           ),
         ],

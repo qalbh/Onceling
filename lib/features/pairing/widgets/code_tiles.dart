@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../theme/tandem_colors.dart';
+import '../../../theme/theme_colors.dart';
 
 /// The user's own pairing code, one sage tile per character.
 class CodeTiles extends StatelessWidget {
@@ -23,7 +23,7 @@ class CodeTiles extends StatelessWidget {
             height: 52,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: context.tandem.tile,
+              color: context.palette.tile,
               borderRadius: BorderRadius.circular(11),
             ),
             child: Text(

@@ -10,16 +10,16 @@ import 'theme/app_theme.dart';
 void main() {
   // Both families are bundled in assets/fonts/; never reach out to Google.
   GoogleFonts.config.allowRuntimeFetching = false;
-  runApp(const TandemApp());
+  runApp(const OncelingApp());
 }
 
-class TandemApp extends StatelessWidget {
-  const TandemApp({super.key});
+class OncelingApp extends StatelessWidget {
+  const OncelingApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Tandem',
+      title: 'Onceling',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),

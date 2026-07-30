@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../theme/tandem_colors.dart';
+import '../../../theme/theme_colors.dart';
 import '../models/feed_item.dart';
 import 'feed_header.dart';
 import 'secret_card.dart';
@@ -159,7 +159,7 @@ class FeedItemView extends StatelessWidget {
           delivered ? '$time · Delivered' : time,
           textAlign: isMine ? TextAlign.right : TextAlign.left,
           style: Theme.of(context).textTheme.titleSmall!.copyWith(
-            color: context.tandem.inkFaint,
+            color: context.palette.inkFaint,
           ),
         ),
       ),
@@ -180,7 +180,7 @@ class _Bubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final palette = context.tandem;
+    final palette = context.palette;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
@@ -217,7 +217,7 @@ class _PhotoWell extends StatelessWidget {
       height: width / 1.26,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: context.tandem.photoPlaceholder,
+        color: context.palette.photoPlaceholder,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Container(
@@ -286,7 +286,7 @@ class _StatusNoteView extends StatelessWidget {
             Text(
               text,
               style: Theme.of(context).textTheme.headlineSmall!.copyWith(
-                color: context.tandem.inkFaint,
+                color: context.palette.inkFaint,
               ),
             ),
           ],

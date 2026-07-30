@@ -1,4 +1,4 @@
-# Tandem — Project Rules
+# Onceling — Project Rules
 
 Flutter app. Two paired people, one shared private space. Package name `couple_app`.
 
@@ -6,6 +6,20 @@ Read this before writing code. These rules are not suggestions; if a request con
 with one, say so instead of silently working around it.
 
 ---
+
+## Naming
+
+The product is **Onceling**. Identifiers are deliberately brand-neutral so a
+rebrand stays cheap: bundle ID `dev.qalb.coupleApp`, Dart package `couple_app`,
+Firebase project `qalb-coupleapp`. Do not rename identifiers to match the
+product. Theme classes use neutral names (ThemeColors, ThemeGlyphs) for the
+same reason.
+
+## Glyph sizing
+
+Glyph and icon sizing lives in ThemeGlyphs, not TextTheme. Decorative glyphs
+do not scale with textScaler; glyphs that carry content do.
+
 
 ## Architecture
 

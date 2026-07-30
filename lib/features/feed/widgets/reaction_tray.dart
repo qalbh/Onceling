@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../theme/app_theme.dart';
-import '../../../theme/tandem_glyphs.dart';
+import '../../../theme/theme_glyphs.dart';
 import '../models/sample_thread.dart';
 
 /// "Say it back" — the sheet for reacting to a specific message.

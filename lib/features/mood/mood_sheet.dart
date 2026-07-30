@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
-import '../../theme/tandem_colors.dart';
-import '../../theme/tandem_glyphs.dart';
+import '../../theme/theme_colors.dart';
+import '../../theme/theme_glyphs.dart';
 import '../feed/models/feed_item.dart';
 
 /// A mood is one emoji plus a short line, shown to the other person as an
@@ -104,7 +104,7 @@ class _MoodSheetState extends State<MoodSheet> {
                   child: Text(
                     '${_note.text.characters.length}/$_maxNote',
                     style: theme.textTheme.titleSmall!.copyWith(
-                      color: context.tandem.inkFaint,
+                      color: context.palette.inkFaint,
                     ),
                   ),
                 ),
@@ -117,7 +117,7 @@ class _MoodSheetState extends State<MoodSheet> {
                     'no sound.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium!.copyWith(
-                      color: context.tandem.inkFaint,
+                      color: context.palette.inkFaint,
                     ),
                   ),
                 ),
@@ -185,7 +185,7 @@ class _MoodSheetState extends State<MoodSheet> {
           Mood(emoji: _emoji, note: _note.text.trim()),
         ),
         style: FilledButton.styleFrom(
-          backgroundColor: context.tandem.bubbleMine,
+          backgroundColor: context.palette.bubbleMine,
           foregroundColor: theme.colorScheme.onPrimary,
           elevation: 0,
           shape: const StadiumBorder(),

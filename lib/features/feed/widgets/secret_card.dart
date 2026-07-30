@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../theme/app_theme.dart';
-import '../../../theme/tandem_colors.dart';
-import '../../../theme/tandem_glyphs.dart';
+import '../../../theme/theme_colors.dart';
+import '../../../theme/theme_glyphs.dart';
 import '../models/feed_item.dart';
 
 /// What the sender sees after sealing a secret, before it is opened.
@@ -14,7 +14,7 @@ class SecretSentBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final palette = context.tandem;
+    final palette = context.palette;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -139,7 +139,7 @@ class _SecretCardState extends State<SecretCard>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final palette = context.tandem;
+    final palette = context.palette;
 
     return GestureDetector(
       onLongPressStart: (_) => _hold.forward(),

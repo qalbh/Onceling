@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../theme/app_theme.dart';
-import '../../../theme/tandem_colors.dart';
-import '../../../theme/tandem_glyphs.dart';
+import '../../../theme/theme_colors.dart';
+import '../../../theme/theme_glyphs.dart';
 import '../models/feed_item.dart';
 
 /// Sage circle carrying a person's initial.
@@ -78,7 +78,7 @@ class FeedHeader extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelMedium!.copyWith(
-                    color: context.tandem.inkFaint,
+                    color: context.palette.inkFaint,
                   ),
                 ),
               ],

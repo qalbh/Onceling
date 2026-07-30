@@ -10,7 +10,7 @@ Future<void> pumpSettings(WidgetTester tester) async {
   tester.view.physicalSize = const Size(1170, 2532);
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(const TandemApp());
+  await tester.pumpWidget(const OncelingApp());
 
   // Route straight to settings rather than walking the whole flow.
   final navigator = tester.state<NavigatorState>(find.byType(Navigator));
@@ -127,7 +127,7 @@ void main() {
     await tester.tap(find.text('Unpair'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Tandem'), findsOneWidget);
+    expect(find.text('Onceling'), findsOneWidget);
     expect(find.byType(SettingsScreen), findsNothing);
     // The whole stack is gone, so there is nothing to pop back to.
     expect(find.byType(SignInScreen), findsOneWidget);

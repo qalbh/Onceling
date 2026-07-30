@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../features/pairing/screens/pairing_screen.dart';
 import '../../../theme/app_theme.dart';
-import '../../../theme/tandem_colors.dart';
-import '../../../theme/tandem_glyphs.dart';
+import '../../../theme/theme_colors.dart';
+import '../../../theme/theme_glyphs.dart';
 import '../widgets/auth_buttons.dart';
 import '../widgets/floral_hero.dart';
 
@@ -48,7 +48,7 @@ class SignInScreen extends StatelessWidget {
                         const SizedBox(height: 22),
                         const FloralHero(),
                         const SizedBox(height: 28),
-                        Text('Tandem', style: AppTheme.wordmark(context, 54)),
+                        Text('Onceling', style: AppTheme.wordmark(context, 54)),
                         const SizedBox(height: 16),
                         Text(
                           'Where two become one story.',
@@ -83,7 +83,7 @@ class SignInScreen extends StatelessWidget {
                         Text(
                           'No audience. Just us.',
                           style: theme.textTheme.titleMedium!.copyWith(
-                            color: context.tandem.inkFaint,
+                            color: context.palette.inkFaint,
                           ),
                         ),
                         const SizedBox(height: 10),

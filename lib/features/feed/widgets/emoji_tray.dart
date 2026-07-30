@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../theme/tandem_glyphs.dart';
+import '../../../theme/theme_glyphs.dart';
 
 /// Floating quick-reaction bar. The plus opens compose; each emoji fires a
 /// burst and sends it to the thread.

@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../../common/app_toast.dart';
 import '../../../theme/app_theme.dart';
-import '../../../theme/tandem_colors.dart';
+import '../../../theme/theme_colors.dart';
 import '../../feed/screens/feed_screen.dart';
 import '../widgets/code_tiles.dart';
 import '../widgets/partner_code_field.dart';
@@ -65,7 +65,7 @@ class _PairingScreenState extends State<PairingScreen> {
                 child: Text(
                   'or',
                   style: theme.textTheme.titleLarge!.copyWith(
-                    color: context.tandem.inkFaint,
+                    color: context.palette.inkFaint,
                   ),
                 ),
               ),
@@ -77,7 +77,7 @@ class _PairingScreenState extends State<PairingScreen> {
                   'You can only ever be paired with one person.',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.titleMedium!.copyWith(
-                    color: context.tandem.inkFaint,
+                    color: context.palette.inkFaint,
                   ),
                 ),
               ),
@@ -185,7 +185,7 @@ class _SectionLabel extends StatelessWidget {
       text,
       textAlign: TextAlign.center,
       style: Theme.of(context).textTheme.labelSmall!.copyWith(
-        color: context.tandem.inkFaint,
+        color: context.palette.inkFaint,
       ),
     );
   }
@@ -216,7 +216,7 @@ class _PairingButton extends StatelessWidget {
               style: FilledButton.styleFrom(
                 backgroundColor: theme.colorScheme.primary,
                 foregroundColor: theme.colorScheme.onPrimary,
-                disabledBackgroundColor: context.tandem.disabled,
+                disabledBackgroundColor: context.palette.disabled,
                 disabledForegroundColor: theme.colorScheme.onPrimary,
                 elevation: 0,
                 shape: const StadiumBorder(),

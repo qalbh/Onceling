@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../theme/app_theme.dart';
-import '../../../theme/tandem_colors.dart';
+import '../../../theme/theme_colors.dart';
 import '../../feed/models/feed_item.dart';
 
 /// Typed confirmation before erasing the pair. Deliberately awkward: the word
@@ -139,7 +139,7 @@ class _UnpairSheetState extends State<UnpairSheet> {
           isCollapsed: true,
           hintText: _phrase,
           hintStyle: theme.textTheme.displaySmall!.copyWith(
-            color: context.tandem.inkFaint,
+            color: context.palette.inkFaint,
           ),
         ),
       ),

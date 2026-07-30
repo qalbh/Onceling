@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 /// Colours with no natural [ColorScheme] role: bubble fills, the secret
 /// takeover, the illustration palette, and the third tier of ink.
 ///
-/// Read through `Theme.of(context).extension<TandemColors>()!` — never from
+/// Read through `Theme.of(context).extension<ThemeColors>()!` — never from
 /// `AppColors`, which exists only to feed this and the [ColorScheme].
 @immutable
-class TandemColors extends ThemeExtension<TandemColors> {
-  const TandemColors({
+class ThemeColors extends ThemeExtension<ThemeColors> {
+  const ThemeColors({
     required this.inkFaint,
     required this.disabled,
     required this.sageDisabled,
@@ -78,7 +78,7 @@ class TandemColors extends ThemeExtension<TandemColors> {
   final Color leafPale;
 
   @override
-  TandemColors copyWith({
+  ThemeColors copyWith({
     Color? inkFaint,
     Color? disabled,
     Color? sageDisabled,
@@ -107,7 +107,7 @@ class TandemColors extends ThemeExtension<TandemColors> {
     Color? leafDeep,
     Color? leafPale,
   }) {
-    return TandemColors(
+    return ThemeColors(
       inkFaint: inkFaint ?? this.inkFaint,
       disabled: disabled ?? this.disabled,
       sageDisabled: sageDisabled ?? this.sageDisabled,
@@ -139,9 +139,9 @@ class TandemColors extends ThemeExtension<TandemColors> {
   }
 
   @override
-  TandemColors lerp(ThemeExtension<TandemColors>? other, double t) {
-    if (other is! TandemColors) return this;
-    return TandemColors(
+  ThemeColors lerp(ThemeExtension<ThemeColors>? other, double t) {
+    if (other is! ThemeColors) return this;
+    return ThemeColors(
       inkFaint: Color.lerp(inkFaint, other.inkFaint, t)!,
       disabled: Color.lerp(disabled, other.disabled, t)!,
       sageDisabled: Color.lerp(sageDisabled, other.sageDisabled, t)!,
@@ -182,6 +182,6 @@ class TandemColors extends ThemeExtension<TandemColors> {
 }
 
 /// Convenience accessor for the palette that has no `ColorScheme` home.
-extension TandemColorsX on BuildContext {
-  TandemColors get tandem => Theme.of(this).extension<TandemColors>()!;
+extension ThemeColorsX on BuildContext {
+  ThemeColors get palette => Theme.of(this).extension<ThemeColors>()!;
 }

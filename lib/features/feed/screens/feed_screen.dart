@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../theme/tandem_colors.dart';
+import '../../../theme/theme_colors.dart';
 import '../../compose/compose_sheet.dart';
 import '../../mood/mood_sheet.dart';
 import '../../secret/screens/secret_reveal_screen.dart';
@@ -186,7 +186,7 @@ class _FeedScreenState extends State<FeedScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: context.tandem.feedBackground,
+      backgroundColor: context.palette.feedBackground,
       body: Stack(
         children: [
           Column(

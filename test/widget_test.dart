@@ -10,7 +10,7 @@ Future<void> pumpApp(WidgetTester tester) async {
   tester.view.physicalSize = const Size(1170, 2532);
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(const TandemApp());
+  await tester.pumpWidget(const OncelingApp());
 }
 
 void main() {
@@ -20,7 +20,7 @@ void main() {
     await pumpApp(tester);
 
     expect(find.text('PRIVATE SPACE'), findsOneWidget);
-    expect(find.text('Tandem'), findsOneWidget);
+    expect(find.text('Onceling'), findsOneWidget);
     expect(find.text('Where two become one story.'), findsOneWidget);
     expect(find.text('Continue with Apple'), findsOneWidget);
     expect(find.text('Continue with Google'), findsOneWidget);
