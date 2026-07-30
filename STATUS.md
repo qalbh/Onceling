@@ -90,7 +90,7 @@ Order matters. Pairing before feed: the feed is easier and will tempt you first,
 pairing is the invariant the product rests on and is far cheaper to get right before
 there is data.
 
-- [ ] **P2-01** Enable Firestore on dev — `asia-south1`, production mode
+- [x] **P2-01** Enable Firestore on dev — `asia-south1`, production mode
 - [ ] **P2-02** Enable Email/Password auth
 - [ ] **P2-03** Add `lib/firebase_options*.dart` to `.gitignore` **before** generating
 - [ ] **P2-04** `flutterfire configure --project=qalb-coupleapp-dev`
