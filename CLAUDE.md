@@ -130,6 +130,11 @@ The client is untrusted. Assume a modified client.
   with one person" — that promise must be true at the data layer, atomically, and
   safe against the handshake's races — chiefly two users accepting each other's
   requests simultaneously, and the same request being accepted twice. See **P2-18**.
+- **`coupleId` is the load-bearing field of the pairing model.** Every guarantee
+  downstream assumes a client cannot forge or clear it. It is set only by
+  **P2-09b**'s transaction and cleared only by the unpair path — both server-side.
+  A Security Rule must reject any client write to it in either direction. An
+  unrestricted clear is as dangerous as an unrestricted set: it orphans a couple.
 - Any operation that must not double-apply (pairing, claiming, unpairing, one-time
   reveals) is a transaction or a callable function. Idempotent, safe against double
   taps and races.

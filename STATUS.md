@@ -122,8 +122,12 @@ there is data.
       screen to `FirebaseAuth`. Loading, error and empty states on every path.
       *Precedes P2-08 — nothing else in Phase 2 works without a signed-in user.*
 - [ ] **P2-30** Create `users/{uid}` on first sign-in — `displayName`, `avatarUrl`,
-      `coupleId: null`, `favoriteEmojis`, `accentColor` (brief §9). Decide and record
-      whether this is a client write protected by rules or an Auth-trigger Function.
+      `coupleId: null`, `favoriteEmojis`, `accentColor` (brief §9).
+      *Client write, protected by rules — not an Auth trigger. The rule preventing a
+      user from setting their own `coupleId` is required either way, since P2-09b's
+      transaction is the only thing allowed to set it. Once that rule exists the
+      trigger buys nothing, and it would need Blaze (P2-16) to deploy, meaning
+      development against something unshippable.*
       *Precedes P2-08 — the code generator needs somewhere to write.*
 - [ ] **P2-08** Six-character code generation with a uniqueness lookup document
 - [ ] **P2-09** `requestPairing(code)` callable — validates the code exists, refuses
@@ -137,10 +141,16 @@ there is data.
       supports **P2-24**.
 - [ ] **P2-10** Security Rules — all reads/writes scoped to the requester's `coupleId`.
       `pairingRequests` and `pairingCodes` both need rules in the same change that
-      introduces them.
+      introduces them. The `users` rule must allow a user to create and update their
+      own document while forbidding any client write to `coupleId` — that field is set
+      only by the **P2-09b** transaction and cleared only by unpair.
 - [ ] **P2-11** Security Rules unit tests — negative cases on every collection: user A
       cannot read couple B's items, cannot read another user's document in
       `pairingCodes`, and cannot read another user's pending `pairingRequests`.
+      A signed-in user writing `coupleId` to their own document must be **rejected**,
+      not merely absent from the happy path. Same for clearing it — an unrestricted
+      clear lets a client orphan a couple, leaving one partner paired to nobody and
+      the other paired to a ghost. Both directions need a failing-write test.
 - [ ] **P2-12** Feed persistence with a real-time listener and pagination
 - [ ] **P2-13** Photo upload to Cloud Storage. *Enable the Storage emulator first —
       until it is on, Functions calls to Cloud Storage hit the real dev bucket.*
