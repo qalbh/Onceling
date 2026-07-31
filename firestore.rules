@@ -6,8 +6,8 @@ rules_version = '2';
 // reachable; everything else falls through to the deny-all at the bottom.
 //
 // Collections so far: users (P2-30), pairingCodes (P2-08), pairingRequests
-// (P2-09), rateLimits (P2-27). couples, items and secretBodies arrive with
-// their own rules at P2-09b and P2-12.
+// (P2-09), rateLimits (P2-27), couples (P2-09b). items and secretBodies
+// arrive with their own rules at P2-12.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -114,6 +114,21 @@ service cloud.firestore {
       allow list: if isSignedIn()
                   && (resource.data.fromUid == request.auth.uid
                       || resource.data.toUid == request.auth.uid);
+
+      allow create, update, delete: if false;
+    }
+
+    // The couple itself. Members read it; nobody writes it from a client —
+    // it is created by P2-09b's accept transaction and mutated only by later
+    // Functions (streaks P3-02, unpair). memberIds is the membership record
+    // the whole product rests on, so a client that could edit it could write
+    // itself into someone else's couple.
+    match /couples/{coupleId} {
+      allow get: if isSignedIn() && request.auth.uid in resource.data.memberIds;
+
+      // No list: there is no query the app makes over couples, and allowing
+      // one would expose every couple's membership to enumeration.
+      allow list: if false;
 
       allow create, update, delete: if false;
     }

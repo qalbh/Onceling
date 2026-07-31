@@ -2,7 +2,7 @@
 
 **Phase 2 of 4 · Last updated: 2026-07-31**
 
-**Now:** P2-09b — respondToPairing, the accept transaction
+**Now:** P2-10 / P2-11 — the remaining Security Rules and their emulator tests
 
 ---
 
@@ -158,10 +158,24 @@ there is data.
       status 'pending'. Rate limited (see **P2-27**).
       *Six rejections, each with a distinct `details.reason`; success returns
       `{requestId}` and nothing else, so B learns nothing about A (**P2-23**).*
-- [ ] **P2-09b** `respondToPairing(requestId, accept)` callable — the transaction that
+- [x] **P2-09b** `respondToPairing(requestId, accept)` callable — the transaction that
       matters. On accept: creates the couple, sets `coupleId` on both users, rejects
       every other pending request for both users, deletes both pairing codes. Atomic,
       idempotent, safe against two accepts landing simultaneously.
+      *One transaction, all reads before all writes; the stale-request sweep uses
+      `transaction.get(query)`. Five preconditions with distinct `details.reason`,
+      plus a self-pair guard `requestPairing` already covers but a forged document
+      would not. Double tap returns the existing `coupleId` instead of throwing.
+      `couples/{coupleId}` rules landed in the same change — members read, no client
+      write at all; auditor scored 5/5.*
+      *`anniversaryDate` and `timezone` are written null and left open: neither has an
+      owner decision, and inventing a default would bake in an answer nobody chose.
+      `timezone` is **Q3**, which blocks **P3-02**.*
+      *Neither expire path writes `settledAt`. A timestamp on an expired request is a
+      timing oracle — 'expired' seven days after `createdAt` is **P2-28**'s sweep,
+      'expired' twenty minutes after is a person having decided, which is exactly what
+      **PI-05** withholds. A sender holding a live listener still sees the moment it
+      changes; that much is unavoidable.*
       *Auditor minor from P2-09: a declined request must not become a read
       oracle. Rules let the sender read their own request, so writing
       `status: 'rejected'` would tell them they were declined — exactly what
@@ -216,13 +230,22 @@ there is data.
       *21 tests: every subtype, null `mediaUrl`/`caption`, empty and multi-person
       reactions, until-closed duration, sealed vs opened, count > 1, unknown type
       and unknown duration both throw.*
-- [ ] **P2-18** Unit tests for the pairing transaction — concurrent claim, double tap,
+- [x] **P2-18** Unit tests for the pairing transaction — concurrent claim, double tap,
       self-pair, already-paired user. Plus the handshake races:
       two users accepting requests from each other simultaneously;
       accepting one request while another is being accepted for the same user;
       accepting a request whose sender paired with someone else in between;
       the same request accepted twice (double tap).
       *Highest-value test in the project.*
+      *`rules-tests/pairing_concurrency.test.mjs`, 15 tests. Each race loops 20 rounds
+      against fresh Firestore state. Every test ends in `assertPairingInvariant()`:
+      no user's `coupleId` points at a couple whose `memberIds` omit them, and no
+      couple lists a member whose `coupleId` points elsewhere.*
+      *All four races were proven sharp by sabotage — neutering a precondition in
+      `functions/src/` and confirming the matching race fails. Races 1 and 2 are
+      backstopped by contention on the sweep query's read set, so they only fail once
+      that is removed too; race 4 needs the not-pending guard gone as well. Worth
+      recording: the preconditions are not the only thing holding the invariant up.*
 - [ ] **P2-19** Google sign-in wiring — SHA-1 and SHA-256 fingerprints registered in
       Firebase (Android), reversed client ID as URL scheme in `Info.plist` (iOS),
       `google_sign_in` package. The provider is already enabled in the console with
@@ -328,6 +351,13 @@ Non-blocking. Fix when convenient.
 - [ ] **D-10** The `fromUid`+`toUid`+`status` composite index for the duplicate-check
       query is declared in `firestore.indexes.json` but untested — the emulator does
       not enforce indexes. Verify against dev before **P2-16**.
+- [ ] **D-11** The accept transaction's correctness rests partly on incidental
+      mechanisms. Sabotage testing at **P2-18** showed the stale-request sweep's
+      `transaction.get(query)` provides the contention that aborts concurrent
+      accepts, and the not-pending guard independently catches double-tap. Neither
+      was designed for that. Any refactor that moves the sweep out of the transaction
+      removes a correctness mechanism while leaving every test green. Warning comment
+      is at the call site.
 
 ---
 

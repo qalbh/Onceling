@@ -306,3 +306,252 @@ export const cancelPairingRequest = onCall(async (request) => {
 
   return { cancelled: true };
 });
+
+/** Status written when a request dies without being accepted. */
+const STATUS_EXPIRED = "expired";
+
+/**
+ * Every pending request touching `uid`, in either direction.
+ *
+ * Four queries rather than one `Filter.or`: each is a plain two-field equality
+ * that the composite indexes already cover, and the union is computed here.
+ */
+function pendingRequestQueries(db: Firestore, uid: string) {
+  const requests = db.collection("pairingRequests");
+  return [
+    requests.where("fromUid", "==", uid).where("status", "==", "pending"),
+    requests.where("toUid", "==", uid).where("status", "==", "pending"),
+  ];
+}
+
+/**
+ * P2-09b — the accept transaction, and the decline that shares its guards.
+ *
+ * Everything the accept does is one transaction: create the couple, stamp
+ * `coupleId` on both users, settle this request, expire every other pending
+ * request either user is involved in, and destroy both pairing codes.
+ */
+export const respondToPairing = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (uid == null) {
+    throw new HttpsError("unauthenticated", "Sign in first.");
+  }
+
+  const requestId = request.data?.requestId;
+  if (typeof requestId !== "string" || requestId === "") {
+    throw new HttpsError("invalid-argument", "Send a requestId.", {
+      reason: "request-id-malformed",
+    });
+  }
+  const accept = request.data?.accept;
+  if (typeof accept !== "boolean") {
+    throw new HttpsError("invalid-argument", "Send accept as a boolean.", {
+      reason: "accept-malformed",
+    });
+  }
+
+  const db = getFirestore();
+  const requestRef = db.doc(`pairingRequests/${requestId}`);
+
+  if (!accept) {
+    await db.runTransaction(async (t) => {
+      const snap = await t.get(requestRef);
+      if (!snap.exists) {
+        throw new HttpsError("not-found", "No such request.", {
+          reason: "request-not-found",
+        });
+      }
+      const data = snap.data() ?? {};
+      if (typeof data.fromUid !== "string" || data.fromUid === "") {
+        throw new HttpsError("failed-precondition", "Malformed request.", {
+          reason: "request-malformed",
+        });
+      }
+      if (data.toUid !== uid) {
+        throw new HttpsError("permission-denied", "Not your request.", {
+          reason: "not-recipient",
+        });
+      }
+      if (data.status !== "pending") {
+        throw new HttpsError(
+          "failed-precondition",
+          "That request is already settled.",
+          { reason: "request-not-pending" },
+        );
+      }
+      // 'expired', never 'rejected' — the sender can read their own request,
+      // and PI-05 forbids telling them a person refused. Never 'cancelled'
+      // either: P2-09c owns that, so a sender who did not cancel would infer
+      // a decline from it.
+      //
+      // No settledAt on this path, deliberately. A timestamp would be a
+      // timing oracle: 'expired' seven days after createdAt is P2-28's sweep,
+      // but 'expired' twenty minutes after is a person having decided —
+      // exactly the fact PI-05 exists to withhold. A sender watching with a
+      // live listener still sees the moment it changes; that much is
+      // unavoidable. Persisting the moment for a sender who was not watching
+      // is not, so we do not.
+      t.update(requestRef, { status: STATUS_EXPIRED });
+    });
+    return { accepted: false };
+  }
+
+  const coupleRef = db.collection("couples").doc();
+
+  return await db.runTransaction(async (t) => {
+    // ---- reads, all of them, before any write ----
+    const requestSnap = await t.get(requestRef);
+    if (!requestSnap.exists) {
+      throw new HttpsError("not-found", "No such request.", {
+        reason: "request-not-found",
+      });
+    }
+    const requestData = requestSnap.data() ?? {};
+    const senderId = requestData.fromUid;
+
+    if (typeof senderId !== "string" || senderId === "") {
+      throw new HttpsError("failed-precondition", "Malformed request.", {
+        reason: "request-malformed",
+      });
+    }
+
+    if (requestData.toUid !== uid) {
+      throw new HttpsError("permission-denied", "Not your request.", {
+        reason: "not-recipient",
+      });
+    }
+
+    // requestPairing already refuses to create one of these, so reaching here
+    // means a forged or corrupted document. Guard anyway: without it the
+    // transaction below would happily write a couple whose memberIds are the
+    // same uid twice, and every downstream "the other member" lookup would
+    // resolve to the reader.
+    if (senderId === uid) {
+      throw new HttpsError(
+        "failed-precondition",
+        "You cannot pair with yourself.",
+        {
+          reason: "self-pairing",
+        },
+      );
+    }
+
+    const recipientRef = db.doc(`users/${uid}`);
+    const senderRef = db.doc(`users/${senderId}`);
+    const [recipientSnap, senderSnap] = await Promise.all([
+      t.get(recipientRef),
+      t.get(senderRef),
+    ]);
+    const recipient = recipientSnap.data() ?? {};
+    const sender = senderSnap.data() ?? {};
+
+    if (requestData.status !== "pending") {
+      // Double tap: the first call already paired these two. Report the same
+      // couple rather than throwing, so the second tap is a no-op and never a
+      // second couple.
+      const settled = requestData.coupleId as string | undefined;
+      if (
+        requestData.status === "accepted" &&
+        settled != null &&
+        recipient.coupleId === settled &&
+        sender.coupleId === settled
+      ) {
+        return { accepted: true, coupleId: settled };
+      }
+      throw new HttpsError(
+        "failed-precondition",
+        "That request is already settled.",
+        { reason: "request-not-pending" },
+      );
+    }
+
+    if (recipient.coupleId != null) {
+      throw new HttpsError("failed-precondition", "You are already paired.", {
+        reason: "caller-already-paired",
+      });
+    }
+    // They paired with someone else while this request sat waiting.
+    if (sender.coupleId != null) {
+      throw new HttpsError(
+        "failed-precondition",
+        "They have already paired with someone.",
+        { reason: "sender-already-paired" },
+      );
+    }
+
+    // Every other pending request either person is party to. Read now, write
+    // later — Firestore forbids a read after the first write in a transaction.
+    //
+    // WARNING: this sweep is load-bearing for correctness, not just cleanup.
+    // Pulling these documents into the transaction's read set is what makes
+    // concurrent accepts contend and abort the loser. Sabotage testing during
+    // P2-18 confirmed it: with the already-paired preconditions removed but this
+    // sweep intact, races 1 and 2 still passed. With the sweep also removed,
+    // race 1 produced two couples at round 0.
+    // Do not move this to a post-transaction cleanup for efficiency without
+    // replacing the contention it provides. See STATUS P2-18.
+    const staleSnaps = await Promise.all(
+      [
+        ...pendingRequestQueries(db, uid),
+        ...pendingRequestQueries(db, senderId),
+      ].map((query) => t.get(query)),
+    );
+
+    // ---- writes ----
+    t.create(coupleRef, {
+      memberIds: [senderId, uid],
+      coupleName: null,
+      // OPEN (owner decision): default to the pairing date, or ask later?
+      // Left null rather than inventing a default nobody chose.
+      anniversaryDate: null,
+      streakCount: 0,
+      lastStreakDate: null,
+      // OPEN (Q3): one couple timezone or per-device? Blocks P3-02. The accept
+      // does not need it, so it stays null until Q3 is answered.
+      timezone: null,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    t.update(recipientRef, {
+      coupleId: coupleRef.id,
+      pairingCode: FieldValue.delete(),
+    });
+    t.update(senderRef, {
+      coupleId: coupleRef.id,
+      pairingCode: FieldValue.delete(),
+    });
+
+    t.update(requestRef, {
+      status: "accepted",
+      coupleId: coupleRef.id,
+      settledAt: FieldValue.serverTimestamp(),
+    });
+
+    // Expire the rest, in both directions for both people. A request created
+    // *during* this transaction will not appear in the reads above — Firestore
+    // conflict detection covers documents read, not documents that appear
+    // later. That is safe: a leftover 'pending' row pointing at a now-paired
+    // user can never be accepted (both already-paired preconditions reject it)
+    // and P2-28 sweeps it after 7 days. The invariant is upheld by the
+    // preconditions, not by this cleanup.
+    const settled = new Set<string>([requestRef.id]);
+    for (const snapshot of staleSnaps) {
+      for (const stale of snapshot.docs) {
+        if (settled.has(stale.id)) continue;
+        settled.add(stale.id);
+        // Same reasoning as the decline path: no settledAt on an expiry.
+        t.update(stale.ref, { status: STATUS_EXPIRED });
+      }
+    }
+
+    // A paired person has no use for a code, and a live one is a stale invite
+    // that can never be honoured.
+    for (const code of [recipient.pairingCode, sender.pairingCode]) {
+      if (typeof code === "string" && code !== "") {
+        t.delete(db.doc(`pairingCodes/${code}`));
+      }
+    }
+
+    return { accepted: true, coupleId: coupleRef.id };
+  });
+});

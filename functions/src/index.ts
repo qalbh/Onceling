@@ -17,4 +17,5 @@ export {
   cancelPairingRequest,
   ensurePairingCode,
   requestPairing,
+  respondToPairing,
 } from "./pairing.js";
