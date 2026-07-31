@@ -3,15 +3,16 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../../common/app_router.dart';
 import '../../../common/app_toast.dart';
 import '../../../common/providers.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
 import '../widgets/code_tiles.dart';
+import '../widgets/incoming_request_card.dart';
 import '../widgets/partner_code_field.dart';
+import '../widgets/send_confirmation_sheet.dart';
+import '../widgets/waiting_card.dart';
 
 /// Pairing step: share your own code, or enter your partner's.
 class PairingScreen extends ConsumerStatefulWidget {
@@ -37,7 +38,31 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   /// Resolved in build(): the profile's real code, or the mock fallback.
   String _shownCode = '';
 
+  /// Set when the sender dismisses a settled request, so the entry form comes
+  /// back without waiting for the document to disappear — it never does.
+  String? _dismissedRequestId;
+
   bool get _canPair => _partnerCode.text.length == _codeLength;
+
+  /// **P2-23.** Confirm, echoing the code back so a typo is catchable, before
+  /// anything is sent. The sheet owns the send and the error copy.
+  Future<void> _confirmSend() async {
+    final code = _partnerCode.text.toUpperCase();
+    if (widget.onPair case final onPair?) {
+      onPair(code);
+      return;
+    }
+
+    final sent = await showSendConfirmationSheet(context, code);
+    if (sent != true || !mounted) return;
+
+    // The outgoing stream now carries a pending request, which swaps this form
+    // for the waiting card. Clear the field so returning here later is clean.
+    setState(() {
+      _partnerCode.clear();
+      _dismissedRequestId = null;
+    });
+  }
 
   @override
   void dispose() {
@@ -91,18 +116,8 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              _Card(child: _shareSection()),
-              const SizedBox(height: 18),
-              Center(
-                child: Text(
-                  'or',
-                  style: theme.textTheme.titleLarge!.copyWith(
-                    color: context.palette.inkFaint,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              _Card(child: _enterSection()),
+              ..._incomingSection(),
+              ..._outgoingSection(theme),
               const SizedBox(height: 26),
               Center(
                 child: Text(
@@ -119,6 +134,67 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       ),
     );
   }
+
+  /// **P2-25.** Requests addressed to me, newest first. Loading and error are
+  /// handled explicitly rather than collapsing to an empty list — a silent
+  /// empty state here would hide the single most important thing on the screen.
+  List<Widget> _incomingSection() {
+    final incoming = ref.watch(incomingRequestsProvider);
+
+    return switch (incoming) {
+      AsyncData(:final value) when value.isEmpty => const [],
+      AsyncData(:final value) => [
+        for (final request in value) ...[
+          IncomingRequestCard(request: request),
+          const SizedBox(height: 14),
+        ],
+        const SizedBox(height: 8),
+      ],
+      AsyncError() => const [
+        _Notice('Could not load requests. Pull the app open again.'),
+        SizedBox(height: 14),
+      ],
+      // Nothing while it resolves: a spinner above the code would flash on
+      // every cold start for a list that is almost always empty.
+      _ => const [],
+    };
+  }
+
+  /// **P2-24.** A live outgoing request replaces the entry form entirely —
+  /// having both would invite sending a second request while one is pending.
+  List<Widget> _outgoingSection(ThemeData theme) {
+    final outgoing = ref.watch(outgoingRequestProvider);
+    final request = outgoing.valueOrNull;
+
+    final settled =
+        request != null &&
+        !request.isPending &&
+        request.id == _dismissedRequestId;
+
+    if (request == null || settled) return _entryForm(theme);
+
+    return [
+      WaitingCard(
+        request: request,
+        onReset: () => setState(() => _dismissedRequestId = request.id),
+      ),
+    ];
+  }
+
+  List<Widget> _entryForm(ThemeData theme) => [
+    _Card(child: _shareSection()),
+    const SizedBox(height: 18),
+    Center(
+      child: Text(
+        'or',
+        style: theme.textTheme.titleLarge!.copyWith(
+          color: context.palette.inkFaint,
+        ),
+      ),
+    ),
+    const SizedBox(height: 18),
+    _Card(child: _enterSection()),
+  ];
 
   Widget _shareSection() {
     return Column(
@@ -169,21 +245,27 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         _PairingButton(
           label: 'Pair us',
           filled: true,
-          onPressed: _canPair
-              ? () {
-                  final code = _partnerCode.text;
-                  if (widget.onPair case final onPair?) {
-                    onPair(code);
-                    return;
-                  }
-                  // Pairing is one-way: the thread replaces this screen. The
-                  // redirect owns the real decision; this is the mock path
-                  // until P2-09b sets coupleId server-side.
-                  context.go(AppRoutes.feed);
-                }
-              : null,
+          onPressed: _canPair ? _confirmSend : null,
         ),
       ],
+    );
+  }
+}
+
+/// Read-only banner for the error branch of a stream.
+class _Notice extends StatelessWidget {
+  const _Notice(this.message);
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      message,
+      textAlign: TextAlign.center,
+      style: Theme.of(
+        context,
+      ).textTheme.titleMedium!.copyWith(color: context.palette.inkFaint),
     );
   }
 }

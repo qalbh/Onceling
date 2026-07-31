@@ -139,6 +139,13 @@ The client is untrusted. Assume a modified client.
   **P2-09b**'s transaction and cleared only by the unpair path — both server-side.
   A Security Rule must reject any client write to it in either direction. An
   unrestricted clear is as dangerous as an unrestricted set: it orphans a couple.
+- **Profile writes are server-side.** `users/{uid}` is created only by
+  `ensureUserProfile` (**P2-35**) via the Admin SDK. `allow create` is `false` — no
+  client can create a profile by any route. Consequence: `isWellFormedProfile` does
+  not guard creation, because the Admin SDK bypasses rules. The function is the only
+  validator on that path, and it guarantees correctness by construction — it writes a
+  fixed literal, so no caller-supplied key reaches the document. Any new auth path
+  must go through `ensureUserProfile`, never a direct client write.
 - Any operation that must not double-apply (pairing, claiming, unpairing, one-time
   reveals) is a transaction or a callable function. Idempotent, safe against double
   taps and races.
@@ -193,12 +200,46 @@ Projects `qalb-coupleapp-dev` and `qalb-coupleapp-prod`. IDs are permanent.
 - Minimum iOS is 15.0, forced by the Firebase SDKs. Do not lower it.
 - `lib/firebase_options*.dart`, `google-services.json`, and `GoogleService-Info.plist`
   are gitignored. Never commit them, never paste their contents into chat.
+- `tools/seed-emulator.mjs` creates five test users with real profiles and claimed
+  pairing codes. Emulator only — it refuses to run without the emulator env vars set.
+  Run it after any `clearFirestore()` or emulator restart. Codes go through
+  `ensurePairingCode`, never written by hand, so seeded state is indistinguishable
+  from real state.
 - Model for the queries actually run, not relational tidiness. Denormalize where it
   saves reads.
 - Handle loading / empty / error states explicitly on every read. All three.
 - Paginate lists. Avoid collection scans; use lookup documents keyed by the value
   being searched when uniqueness or O(1) lookup is needed.
 - Keep composite indexes in `firestore.indexes.json` in sync with queries (**P3-06**).
+
+## Local run
+
+- **Install on every booted simulator, not one.** Onceling is a two-person app and
+  most flows worth checking involve two accounts. After any change that alters app
+  behaviour, install the current build on all booted iOS simulators so the user can
+  tap through both sides without relaunching:
+
+      flutter devices                    # list booted simulators
+      flutter run -d <device-id>         # one per simulator, separate terminals
+
+  Verification only needs one device — run the suites there. Installing on both is
+  for the user's tap-through, not for the agent.
+
+  Report each device ID, the model, and which account (if any) each is signed in as.
+  If only one simulator is booted, say so rather than silently installing on one.
+
+- Seeded test accounts, all with password `testpass123`: `maya@onceling.test`,
+  `devon@onceling.test`, `sam@onceling.test`, `alex@onceling.test`,
+  `jo@onceling.test`.
+
+  **Pairing codes are not fixed and must not be recorded here.** `claimPairingCode`
+  mints a fresh random code on every seed run, so any code written down is stale by
+  the next one. The script prints the current five — read them from its output.
+
+  Re-run `tools/seed-emulator.mjs` after any emulator restart or `clearFirestore()` —
+  emulator data is ephemeral, and both Node suites clear it. A cached auth session
+  pointing at a deleted uid strands the app on the splash screen; since **P2-34**
+  that screen offers sign-out and a profile rebuild rather than trapping you.
 
 ## Agent skills
 

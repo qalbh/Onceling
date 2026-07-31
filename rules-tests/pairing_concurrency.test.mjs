@@ -32,6 +32,8 @@ import {
 } from "firebase/functions";
 import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
 
+import { assertPairingInvariant as checkPairingInvariant } from "./pairing_invariant.mjs";
+
 const PROJECT = "qalb-coupleapp-dev";
 
 /** Loop count for every race. Fewer than this and a race hides. */
@@ -161,57 +163,12 @@ const codeFor = (uid, salt) => `${salt}${uid}`.replace(/-/g, "").slice(0, 6);
 /**
  * The assertion that matters most. Called at the end of every test.
  *
- * Two directions, because a half-applied transaction breaks exactly one of
- * them:
- *   - no user's coupleId points at a couple whose memberIds omit them;
- *   - no couple lists a member whose coupleId points somewhere else.
+ * Definition lives in pairing_invariant.mjs so P2-35's recovery tests assert
+ * the identical thing — see the note there.
  *
  * If this ever fails the transaction is wrong regardless of what else passed.
  */
-async function assertPairingInvariant(label) {
-  const [users, couples] = await Promise.all([
-    readAll("users"),
-    readAll("couples"),
-  ]);
-  const byId = new Map(couples.map((c) => [c.id, c]));
-
-  for (const user of users) {
-    if (user.coupleId == null) continue;
-    const couple = byId.get(user.coupleId);
-    assert.ok(
-      couple != null,
-      `${label}: user ${user.id} has coupleId ${user.coupleId} but no such couple exists`,
-    );
-    assert.ok(
-      Array.isArray(couple.memberIds) && couple.memberIds.includes(user.id),
-      `${label}: user ${user.id} points at couple ${couple.id} whose memberIds are ${JSON.stringify(couple.memberIds)}`,
-    );
-  }
-
-  for (const couple of couples) {
-    assert.ok(
-      Array.isArray(couple.memberIds) && couple.memberIds.length === 2,
-      `${label}: couple ${couple.id} has memberIds ${JSON.stringify(couple.memberIds)} — a couple is exactly two people`,
-    );
-    assert.equal(
-      new Set(couple.memberIds).size,
-      2,
-      `${label}: couple ${couple.id} lists the same uid twice`,
-    );
-    for (const member of couple.memberIds) {
-      const user = users.find((u) => u.id === member);
-      assert.ok(
-        user != null,
-        `${label}: couple ${couple.id} lists unknown user ${member}`,
-      );
-      assert.equal(
-        user.coupleId,
-        couple.id,
-        `${label}: couple ${couple.id} lists ${member}, whose coupleId is ${user.coupleId}`,
-      );
-    }
-  }
-}
+const assertPairingInvariant = (label) => checkPairingInvariant(readAll, label);
 
 /** Splits allSettled output into successes and rejections. */
 function settle(results) {

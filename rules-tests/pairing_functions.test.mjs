@@ -2,38 +2,41 @@
 // Run: cd rules-tests && npm run test:functions   (emulator suite must be up,
 // with build:watch keeping functions/lib/ fresh).
 
-import { createRequire } from 'node:module';
-import { randomUUID } from 'node:crypto';
-import { after, before, beforeEach, describe, test } from 'node:test';
-import assert from 'node:assert/strict';
+import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
+import { after, before, beforeEach, describe, test } from "node:test";
+import assert from "node:assert/strict";
 
-import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { deleteApp, initializeApp } from 'firebase/app';
+import { initializeTestEnvironment } from "@firebase/rules-unit-testing";
+import { deleteApp, initializeApp } from "firebase/app";
 import {
   connectAuthEmulator,
   createUserWithEmailAndPassword,
   getAuth,
-} from 'firebase/auth';
+} from "firebase/auth";
 import {
   connectFunctionsEmulator,
   getFunctions,
   httpsCallable,
-} from 'firebase/functions';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+} from "firebase/functions";
+import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
+
+import { assertPairingInvariant } from "./pairing_invariant.mjs";
 
 // The compiled functions module, imported directly so the pure pieces
 // (alphabet, generator, claim-with-retry) are testable without HTTP.
 // Point the admin SDK it initialises at the emulator first.
-process.env.FIRESTORE_EMULATOR_HOST ??= '127.0.0.1:8080';
-process.env.GCLOUD_PROJECT ??= 'qalb-coupleapp-dev';
+process.env.FIRESTORE_EMULATOR_HOST ??= "127.0.0.1:8080";
+process.env.GCLOUD_PROJECT ??= "qalb-coupleapp-dev";
 // Resolve from functions/ — firebase-admin is its dependency, not ours.
 const requireFromFunctions = createRequire(
-  new URL('../functions/package.json', import.meta.url),
+  new URL("../functions/package.json", import.meta.url),
 );
-const pairing = requireFromFunctions('./lib/pairing.js');
-const { getFirestore } = requireFromFunctions('firebase-admin/firestore');
+const pairing = requireFromFunctions("./lib/pairing.js");
+const { getFirestore } = requireFromFunctions("firebase-admin/firestore");
+const profile = requireFromFunctions("./lib/profile.js");
 
-const PROJECT = 'qalb-coupleapp-dev';
+const PROJECT = "qalb-coupleapp-dev";
 
 let testEnv;
 const apps = [];
@@ -41,7 +44,7 @@ const apps = [];
 before(async () => {
   testEnv = await initializeTestEnvironment({
     projectId: PROJECT,
-    firestore: { host: '127.0.0.1', port: 8080 },
+    firestore: { host: "127.0.0.1", port: 8080 },
   });
 });
 
@@ -57,19 +60,19 @@ beforeEach(async () => {
 /** Fresh signed-in client app: auth user + functions handle wired in. */
 async function newUser() {
   const app = initializeApp(
-    { apiKey: 'fake-api-key', projectId: PROJECT },
+    { apiKey: "fake-api-key", projectId: PROJECT },
     `app-${randomUUID()}`,
   );
   apps.push(app);
   const auth = getAuth(app);
-  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
   const cred = await createUserWithEmailAndPassword(
     auth,
     `${randomUUID()}@onceling.test`,
-    'hunter22',
+    "hunter22",
   );
   const functions = getFunctions(app);
-  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
   return {
     uid: cred.user.uid,
     call: (name, data) => httpsCallable(functions, name)(data),
@@ -79,20 +82,20 @@ async function newUser() {
 /** Unauthenticated functions handle. */
 function anonCaller() {
   const app = initializeApp(
-    { apiKey: 'fake-api-key', projectId: PROJECT },
+    { apiKey: "fake-api-key", projectId: PROJECT },
     `anon-${randomUUID()}`,
   );
   apps.push(app);
   const functions = getFunctions(app);
-  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
   return (name, data) => httpsCallable(functions, name)(data);
 }
 
 /** Seeds a minimal users/{uid} document past the rules. */
 async function seedProfile(uid, extra = {}) {
   await testEnv.withSecurityRulesDisabled(async (context) => {
-    await setDoc(doc(context.firestore(), 'users', uid), {
-      displayName: 'Test',
+    await setDoc(doc(context.firestore(), "users", uid), {
+      displayName: "Test",
       avatarUrl: null,
       coupleId: null,
       favoriteEmojis: [],
@@ -101,6 +104,15 @@ async function seedProfile(uid, extra = {}) {
       ...extra,
     });
   });
+}
+
+/** Runs `fn(db)` with rules disabled — ground truth, not the client's view. */
+async function admin(fn) {
+  let out;
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    out = await fn(context.firestore());
+  });
+  return out;
 }
 
 async function readDoc(path) {
@@ -125,14 +137,14 @@ async function expectCallableError(promise, code, reason) {
   } catch (error) {
     assert.equal(error.code, code, `code for ${reason}: ${error.message}`);
     if (reason != null) {
-      assert.equal(error.details?.reason, reason, 'details.reason');
+      assert.equal(error.details?.reason, reason, "details.reason");
     }
   }
 }
 
-describe('code generation (pure)', () => {
-  test('the alphabet has no ambiguous characters', () => {
-    for (const banned of ['0', 'O', '1', 'I', 'L']) {
+describe("code generation (pure)", () => {
+  test("the alphabet has no ambiguous characters", () => {
+    for (const banned of ["0", "O", "1", "I", "L"]) {
       assert.ok(
         !pairing.CODE_ALPHABET.includes(banned),
         `alphabet must not contain ${banned}`,
@@ -140,7 +152,7 @@ describe('code generation (pure)', () => {
     }
   });
 
-  test('generated codes stay inside the alphabet, at length 6', () => {
+  test("generated codes stay inside the alphabet, at length 6", () => {
     for (let i = 0; i < 10_000; i++) {
       const code = pairing.generateCode();
       assert.equal(code.length, pairing.CODE_LENGTH);
@@ -151,13 +163,13 @@ describe('code generation (pure)', () => {
   });
 });
 
-describe('ensurePairingCode', () => {
-  test('repeated calls return the same code', async () => {
+describe("ensurePairingCode", () => {
+  test("repeated calls return the same code", async () => {
     const user = await newUser();
     await seedProfile(user.uid);
 
-    const first = (await user.call('ensurePairingCode')).data.code;
-    const second = (await user.call('ensurePairingCode')).data.code;
+    const first = (await user.call("ensurePairingCode")).data.code;
+    const second = (await user.call("ensurePairingCode")).data.code;
 
     assert.equal(first, second);
     assert.equal(first.length, 6);
@@ -167,148 +179,156 @@ describe('ensurePairingCode', () => {
     assert.equal(claim.ownerId, user.uid);
   });
 
-  test('collision retries onto a fresh code without disturbing the owner', async () => {
+  test("collision retries onto a fresh code without disturbing the owner", async () => {
     const victim = await newUser();
     await seedProfile(victim.uid);
-    await writeDoc('pairingCodes/AAAAAA', {
-      ownerId: 'someone-else',
+    await writeDoc("pairingCodes/AAAAAA", {
+      ownerId: "someone-else",
       createdAt: new Date(),
     });
 
     // Force the generator to collide first, then produce a free code.
-    const sequence = ['AAAAAA', 'BBBBBB'];
+    const sequence = ["AAAAAA", "BBBBBB"];
     const code = await pairing.claimPairingCode(
       getFirestore(),
       victim.uid,
-      () => sequence.shift() ?? 'CCCCCC',
+      () => sequence.shift() ?? "CCCCCC",
     );
 
-    assert.equal(code, 'BBBBBB');
-    const original = await readDoc('pairingCodes/AAAAAA');
-    assert.equal(original.ownerId, 'someone-else', 'collision must not overwrite');
+    assert.equal(code, "BBBBBB");
+    const original = await readDoc("pairingCodes/AAAAAA");
+    assert.equal(
+      original.ownerId,
+      "someone-else",
+      "collision must not overwrite",
+    );
   });
 
-  test('gives up with resource-exhausted after the attempt cap', async () => {
+  test("gives up with resource-exhausted after the attempt cap", async () => {
     const user = await newUser();
     await seedProfile(user.uid);
-    await writeDoc('pairingCodes/DDDDDD', {
-      ownerId: 'someone-else',
+    await writeDoc("pairingCodes/DDDDDD", {
+      ownerId: "someone-else",
       createdAt: new Date(),
     });
 
     await assert.rejects(
-      pairing.claimPairingCode(getFirestore(), user.uid, () => 'DDDDDD'),
-      (error) => error.code === 'resource-exhausted',
+      pairing.claimPairingCode(getFirestore(), user.uid, () => "DDDDDD"),
+      (error) => error.code === "resource-exhausted",
     );
   });
 
-  test('refuses a paired caller', async () => {
+  test("refuses a paired caller", async () => {
     const user = await newUser();
-    await seedProfile(user.uid, { coupleId: 'couple-1' });
+    await seedProfile(user.uid, { coupleId: "couple-1" });
     await expectCallableError(
-      user.call('ensurePairingCode'),
-      'functions/failed-precondition',
-      'caller-already-paired',
+      user.call("ensurePairingCode"),
+      "functions/failed-precondition",
+      "caller-already-paired",
     );
   });
 });
 
-describe('requestPairing — the six rejections', () => {
-  test('unauthenticated', async () => {
+describe("requestPairing — the six rejections", () => {
+  test("unauthenticated", async () => {
     const call = anonCaller();
     await expectCallableError(
-      call('requestPairing', { code: 'ABC234' }),
-      'functions/unauthenticated',
+      call("requestPairing", { code: "ABC234" }),
+      "functions/unauthenticated",
       null,
     );
   });
 
-  test('caller already paired', async () => {
+  test("caller already paired", async () => {
     const user = await newUser();
-    await seedProfile(user.uid, { coupleId: 'couple-1' });
+    await seedProfile(user.uid, { coupleId: "couple-1" });
     await expectCallableError(
-      user.call('requestPairing', { code: 'ABC234' }),
-      'functions/failed-precondition',
-      'caller-already-paired',
+      user.call("requestPairing", { code: "ABC234" }),
+      "functions/failed-precondition",
+      "caller-already-paired",
     );
   });
 
-  test('code does not exist', async () => {
-    const user = await newUser();
-    await seedProfile(user.uid);
-    await expectCallableError(
-      user.call('requestPairing', { code: 'ZZZ999' }),
-      'functions/not-found',
-      'code-not-found',
-    );
-  });
-
-  test('self-pairing', async () => {
+  test("code does not exist", async () => {
     const user = await newUser();
     await seedProfile(user.uid);
-    const code = (await user.call('ensurePairingCode')).data.code;
     await expectCallableError(
-      user.call('requestPairing', { code }),
-      'functions/invalid-argument',
-      'self-pairing',
+      user.call("requestPairing", { code: "ZZZ999" }),
+      "functions/not-found",
+      "code-not-found",
     );
   });
 
-  test('owner already paired', async () => {
+  test("self-pairing", async () => {
+    const user = await newUser();
+    await seedProfile(user.uid);
+    const code = (await user.call("ensurePairingCode")).data.code;
+    await expectCallableError(
+      user.call("requestPairing", { code }),
+      "functions/invalid-argument",
+      "self-pairing",
+    );
+  });
+
+  test("owner already paired", async () => {
     const owner = await newUser();
     await seedProfile(owner.uid);
-    const code = (await owner.call('ensurePairingCode')).data.code;
+    const code = (await owner.call("ensurePairingCode")).data.code;
     // Pair the owner behind the scenes, leaving the code dangling.
-    await seedProfile(owner.uid, { coupleId: 'couple-1', pairingCode: code });
+    await seedProfile(owner.uid, { coupleId: "couple-1", pairingCode: code });
 
     const requester = await newUser();
     await seedProfile(requester.uid);
     await expectCallableError(
-      requester.call('requestPairing', { code }),
-      'functions/failed-precondition',
-      'owner-already-paired',
+      requester.call("requestPairing", { code }),
+      "functions/failed-precondition",
+      "owner-already-paired",
     );
   });
 
-  test('duplicate pending request to the same owner', async () => {
+  test("duplicate pending request to the same owner", async () => {
     const owner = await newUser();
     await seedProfile(owner.uid);
-    const code = (await owner.call('ensurePairingCode')).data.code;
+    const code = (await owner.call("ensurePairingCode")).data.code;
 
     const requester = await newUser();
     await seedProfile(requester.uid);
-    await requester.call('requestPairing', { code });
+    await requester.call("requestPairing", { code });
     await expectCallableError(
-      requester.call('requestPairing', { code }),
-      'functions/already-exists',
-      'request-already-pending',
+      requester.call("requestPairing", { code }),
+      "functions/already-exists",
+      "request-already-pending",
     );
   });
 });
 
-describe('requestPairing — happy path', () => {
-  test('creates exactly one pending document and returns only its id', async () => {
+describe("requestPairing — happy path", () => {
+  test("creates exactly one pending document and returns only its id", async () => {
     const owner = await newUser();
     await seedProfile(owner.uid);
-    const code = (await owner.call('ensurePairingCode')).data.code;
+    const code = (await owner.call("ensurePairingCode")).data.code;
 
     const requester = await newUser();
     await seedProfile(requester.uid);
-    const result = await requester.call('requestPairing', { code });
+    const result = await requester.call("requestPairing", { code });
 
-    assert.deepEqual(Object.keys(result.data), ['requestId'], 'nothing but the id');
+    assert.deepEqual(
+      Object.keys(result.data),
+      ["requestId"],
+      "nothing but the id",
+    );
     const request = await readDoc(`pairingRequests/${result.data.requestId}`);
     assert.equal(request.fromUid, requester.uid);
     assert.equal(request.toUid, owner.uid);
-    assert.equal(request.status, 'pending');
+    assert.equal(request.status, "pending");
   });
 });
 
-describe('requestPairing — rate limit (P2-27)', () => {
-  test('the cap triggers, and a VALID code gets the same error as an invalid one', async () => {
+describe("requestPairing — rate limit (P2-27)", () => {
+  test("the cap triggers, and a VALID code gets the same error as an invalid one", async () => {
     const owner = await newUser();
     await seedProfile(owner.uid);
-    const validCode = (await owner.call('ensurePairingCode')).data.code;
+    const validCode = (await owner.call("ensurePairingCode")).data.code;
 
     const prober = await newUser();
     await seedProfile(prober.uid);
@@ -316,26 +336,26 @@ describe('requestPairing — rate limit (P2-27)', () => {
     // Spend the whole budget on garbage codes — failed probes are not free.
     for (let i = 0; i < 5; i++) {
       await expectCallableError(
-        prober.call('requestPairing', { code: 'ZZZ999' }),
-        'functions/not-found',
-        'code-not-found',
+        prober.call("requestPairing", { code: "ZZZ999" }),
+        "functions/not-found",
+        "code-not-found",
       );
     }
 
     // Over the cap: identical error whether the code is real or not.
     await expectCallableError(
-      prober.call('requestPairing', { code: 'ZZZ999' }),
-      'functions/resource-exhausted',
-      'rate-limited',
+      prober.call("requestPairing", { code: "ZZZ999" }),
+      "functions/resource-exhausted",
+      "rate-limited",
     );
     await expectCallableError(
-      prober.call('requestPairing', { code: validCode }),
-      'functions/resource-exhausted',
-      'rate-limited',
+      prober.call("requestPairing", { code: validCode }),
+      "functions/resource-exhausted",
+      "rate-limited",
     );
   });
 
-  test('the budget resets once the window has passed', async () => {
+  test("the budget resets once the window has passed", async () => {
     const user = await newUser();
     await seedProfile(user.uid);
 
@@ -348,57 +368,303 @@ describe('requestPairing — rate limit (P2-27)', () => {
     // Back under the cap: the stale window is discarded and the call gets
     // through to validation (not-found, because the code is garbage).
     await expectCallableError(
-      user.call('requestPairing', { code: 'ZZZ999' }),
-      'functions/not-found',
-      'code-not-found',
+      user.call("requestPairing", { code: "ZZZ999" }),
+      "functions/not-found",
+      "code-not-found",
     );
   });
 });
 
-describe('cancelPairingRequest', () => {
+describe("ensureUserProfile (P2-30, P2-35)", () => {
+  /** Every collection, as [{id, ...data}] — what the invariant check needs. */
+  const readAll = (name) =>
+    admin(async (db) => {
+      const snap = await getDocs(collection(db, name));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    });
+
+  test("no couple: recreated unpaired, as before", async () => {
+    const user = await newUser();
+    const { data } = await user.call("ensureUserProfile", {});
+
+    assert.equal(data.created, true);
+    assert.equal(data.coupleId, null);
+    assert.equal((await readDoc(`users/${user.uid}`)).coupleId, null);
+    await assertPairingInvariant(readAll, "recovery, unpaired");
+  });
+
+  test("in a couple: coupleId is restored, not nulled", async () => {
+    const user = await newUser();
+    const partner = await newUser();
+    await seedProfile(partner.uid, { coupleId: "C1" });
+    await writeDoc("couples/C1", {
+      memberIds: [user.uid, partner.uid],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+
+    // The profile is absent — the P2-35 state exactly.
+    const { data } = await user.call("ensureUserProfile", {});
+
+    assert.equal(data.coupleId, "C1");
+    assert.equal((await readDoc(`users/${user.uid}`)).coupleId, "C1");
+    // The whole point: recovery must not orphan them.
+    await assertPairingInvariant(readAll, "recovery, paired");
+  });
+
+  test("in two couples: fails loudly and picks neither", async () => {
+    const user = await newUser();
+    const a = await newUser();
+    const b = await newUser();
+    await seedProfile(a.uid, { coupleId: "C1" });
+    await seedProfile(b.uid, { coupleId: "C2" });
+    await writeDoc("couples/C1", {
+      memberIds: [user.uid, a.uid],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+    await writeDoc("couples/C2", {
+      memberIds: [user.uid, b.uid],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+
+    await expectCallableError(
+      user.call("ensureUserProfile", {}),
+      "functions/failed-precondition",
+      "multiple-couples",
+    );
+    // No profile written at all — better a missing document than a wrong one.
+    assert.equal(await readDoc(`users/${user.uid}`), undefined);
+  });
+
+  test("an existing profile is returned untouched, and costs no couples read", async () => {
+    const user = await newUser();
+    await seedProfile(user.uid, { displayName: "Original", coupleId: null });
+    // Two couples list them. If the early return did NOT skip the query, this
+    // call would throw multiple-couples — so a clean return proves the read is
+    // not spent on the existing-profile path.
+    await writeDoc("couples/C1", {
+      memberIds: [user.uid, "x"],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+    await writeDoc("couples/C2", {
+      memberIds: [user.uid, "y"],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+
+    const { data } = await user.call("ensureUserProfile", {});
+
+    assert.equal(data.created, false);
+    assert.equal((await readDoc(`users/${user.uid}`)).displayName, "Original");
+  });
+
+  test("repeat calls do not clobber", async () => {
+    const user = await newUser();
+    await user.call("ensureUserProfile", { displayName: "First" });
+    await user.call("ensureUserProfile", { displayName: "Second" });
+
+    assert.equal((await readDoc(`users/${user.uid}`)).displayName, "First");
+  });
+});
+
+// P2-35 closed `allow create`, so isWellFormedProfile no longer guards this
+// path — the Admin SDK bypasses rules and this function is the only writer.
+// Every check that rule made must hold here.
+describe("ensureUserProfile — the checks the create rule used to make", () => {
+  test("writes exactly the field set the rule required", async () => {
+    const user = await newUser();
+    await user.call("ensureUserProfile", {});
+    const written = await readDoc(`users/${user.uid}`);
+
+    assert.deepEqual(Object.keys(written).sort(), [
+      "accentColor",
+      "avatarUrl",
+      "coupleId",
+      "createdAt",
+      "displayName",
+      "favoriteEmojis",
+    ]);
+    // pairingCode is claimed later, never at create time.
+    assert.equal("pairingCode" in written, false);
+  });
+
+  test("bounds an over-long displayName to the rule's limit", async () => {
+    const user = await newUser();
+    await user.call("ensureUserProfile", { displayName: "x".repeat(500) });
+
+    const written = await readDoc(`users/${user.uid}`);
+    assert.equal(written.displayName.length, profile.MAX_DISPLAY_NAME);
+  });
+
+  test("never writes an empty displayName", async () => {
+    const user = await newUser();
+    await user.call("ensureUserProfile", { displayName: "   " });
+
+    const written = await readDoc(`users/${user.uid}`);
+    assert.ok(written.displayName.length > 0);
+  });
+
+  test("ignores a non-string displayName rather than writing it", async () => {
+    const user = await newUser();
+    await user.call("ensureUserProfile", { displayName: 42 });
+
+    const written = await readDoc(`users/${user.uid}`);
+    assert.equal(typeof written.displayName, "string");
+    assert.ok(written.displayName.length > 0);
+  });
+
+  test("writes the eight defaults, and the list is bounded", async () => {
+    const user = await newUser();
+    await user.call("ensureUserProfile", {});
+
+    const written = await readDoc(`users/${user.uid}`);
+    assert.equal(written.favoriteEmojis.length, 8);
+  });
+
+  test("createdAt is server-set and cannot be back-dated by the caller", async () => {
+    const user = await newUser();
+    const before = Date.now();
+    await user.call("ensureUserProfile", {
+      createdAt: new Date("2020-01-01T00:00:00Z").toISOString(),
+    });
+
+    const written = await readDoc(`users/${user.uid}`);
+    assert.ok(written.createdAt.toMillis() >= before - 60_000);
+  });
+
+  test("a client-supplied coupleId is ignored, not honoured", async () => {
+    const user = await newUser();
+    await user.call("ensureUserProfile", { coupleId: "forged-couple" });
+
+    assert.equal((await readDoc(`users/${user.uid}`)).coupleId, null);
+  });
+
+  test("an unauthenticated caller gets nothing", async () => {
+    const anon = anonCaller();
+    await expectCallableError(
+      anon("ensureUserProfile", {}),
+      "functions/unauthenticated",
+    );
+  });
+
+  test("an extra field in the payload is not copied onto the document", async () => {
+    const user = await newUser();
+    await user.call("ensureUserProfile", { isAdmin: true, role: "owner" });
+
+    const written = await readDoc(`users/${user.uid}`);
+    assert.equal("isAdmin" in written, false);
+    assert.equal("role" in written, false);
+  });
+});
+
+describe("requestPairing — denormalised sender (P2-25)", () => {
+  test("copies the sender name and avatar onto the request", async () => {
+    const owner = await newUser();
+    const sender = await newUser();
+    await seedProfile(owner.uid);
+    await seedProfile(sender.uid, {
+      displayName: "Maya",
+      avatarUrl: "https://example.test/a.png",
+    });
+    const { code } = (await owner.call("ensurePairingCode")).data;
+
+    const { requestId } = (await sender.call("requestPairing", { code })).data;
+    const request = await readDoc(`pairingRequests/${requestId}`);
+
+    assert.equal(request.fromDisplayName, "Maya");
+    assert.equal(request.fromAvatarUrl, "https://example.test/a.png");
+  });
+
+  test("bounds an over-long name — untrusted input crossing to another user", async () => {
+    const owner = await newUser();
+    const sender = await newUser();
+    await seedProfile(owner.uid);
+    // Longer than the users rules permit, so it could only arrive via a
+    // corrupted document — bound it here rather than trusting the rules were
+    // the only writer.
+    await seedProfile(sender.uid, { displayName: "M".repeat(500) });
+    const { code } = (await owner.call("ensurePairingCode")).data;
+
+    const { requestId } = (await sender.call("requestPairing", { code })).data;
+    const request = await readDoc(`pairingRequests/${requestId}`);
+
+    assert.equal(request.fromDisplayName.length, pairing.MAX_DENORMALISED_NAME);
+  });
+
+  test("an empty name falls back rather than rendering blank", async () => {
+    const owner = await newUser();
+    const sender = await newUser();
+    await seedProfile(owner.uid);
+    await seedProfile(sender.uid, { displayName: "   " });
+    const { code } = (await owner.call("ensurePairingCode")).data;
+
+    const { requestId } = (await sender.call("requestPairing", { code })).data;
+    const request = await readDoc(`pairingRequests/${requestId}`);
+
+    assert.equal(request.fromDisplayName, pairing.FALLBACK_SENDER_NAME);
+  });
+
+  test("a non-string avatar is dropped, not passed through", async () => {
+    const owner = await newUser();
+    const sender = await newUser();
+    await seedProfile(owner.uid);
+    await seedProfile(sender.uid, { displayName: "Sam", avatarUrl: 42 });
+    const { code } = (await owner.call("ensurePairingCode")).data;
+
+    const { requestId } = (await sender.call("requestPairing", { code })).data;
+    const request = await readDoc(`pairingRequests/${requestId}`);
+
+    assert.equal(request.fromAvatarUrl, null);
+  });
+});
+
+describe("cancelPairingRequest", () => {
   async function pendingRequest() {
     const owner = await newUser();
     await seedProfile(owner.uid);
-    const code = (await owner.call('ensurePairingCode')).data.code;
+    const code = (await owner.call("ensurePairingCode")).data.code;
     const sender = await newUser();
     await seedProfile(sender.uid);
-    const { data } = await sender.call('requestPairing', { code });
+    const { data } = await sender.call("requestPairing", { code });
     return { sender, owner, requestId: data.requestId };
   }
 
-  test('the sender can cancel a pending request', async () => {
+  test("the sender can cancel a pending request", async () => {
     const { sender, requestId } = await pendingRequest();
-    await sender.call('cancelPairingRequest', { requestId });
+    await sender.call("cancelPairingRequest", { requestId });
     const request = await readDoc(`pairingRequests/${requestId}`);
-    assert.equal(request.status, 'cancelled');
+    assert.equal(request.status, "cancelled");
   });
 
-  test('the recipient cannot cancel it', async () => {
+  test("the recipient cannot cancel it", async () => {
     const { owner, requestId } = await pendingRequest();
     await expectCallableError(
-      owner.call('cancelPairingRequest', { requestId }),
-      'functions/permission-denied',
-      'not-sender',
+      owner.call("cancelPairingRequest", { requestId }),
+      "functions/permission-denied",
+      "not-sender",
     );
   });
 
-  test('a settled request cannot be cancelled again', async () => {
+  test("a settled request cannot be cancelled again", async () => {
     const { sender, requestId } = await pendingRequest();
-    await sender.call('cancelPairingRequest', { requestId });
+    await sender.call("cancelPairingRequest", { requestId });
     await expectCallableError(
-      sender.call('cancelPairingRequest', { requestId }),
-      'functions/failed-precondition',
-      'request-not-pending',
+      sender.call("cancelPairingRequest", { requestId }),
+      "functions/failed-precondition",
+      "request-not-pending",
     );
   });
 
-  test('an unknown request is not-found', async () => {
+  test("an unknown request is not-found", async () => {
     const user = await newUser();
     await seedProfile(user.uid);
     await expectCallableError(
-      user.call('cancelPairingRequest', { requestId: 'nope' }),
-      'functions/not-found',
-      'request-not-found',
+      user.call("cancelPairingRequest", { requestId: "nope" }),
+      "functions/not-found",
+      "request-not-found",
     );
   });
 });

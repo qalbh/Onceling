@@ -23,6 +23,11 @@ class FakeAuthService implements AuthService {
   final List<String> calls = [];
 
   @override
+  Future<void> recoverProfile() async {
+    calls.add('recoverProfile');
+  }
+
+  @override
   Future<void> signIn({required String email, required String password}) async {
     calls.add('signIn:$email');
     if (completer != null) await completer!.future;

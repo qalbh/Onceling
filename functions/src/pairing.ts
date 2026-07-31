@@ -36,6 +36,34 @@ export const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // one hour
 /** How many fresh codes to try before giving up on a pathological run. */
 export const MAX_CODE_ATTEMPTS = 10;
 
+/**
+ * Cap on the denormalised display name copied onto a pairing request.
+ *
+ * Matches the bound the users rules enforce on `displayName`. The value is
+ * user-controlled and this document is read by *the other person*, so it is
+ * untrusted content crossing a trust boundary — bound it here rather than
+ * trusting that the rules were the only way it could have been written.
+ */
+export const MAX_DENORMALISED_NAME = 40;
+
+/** Cap on the denormalised avatar URL, matching the users rules. */
+export const MAX_DENORMALISED_AVATAR = 512;
+
+/**
+ * Shown when a sender has no usable display name. Rules require a non-empty
+ * one, so this is the corrupted-or-legacy path; render something rather than
+ * an empty bubble where a person's name should be.
+ */
+export const FALLBACK_SENDER_NAME = "Someone";
+
+/** Clamps an untrusted string field, or returns null if it is unusable. */
+export function boundedString(value: unknown, max: number): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  return trimmed.length > max ? trimmed.slice(0, max) : trimmed;
+}
+
 /** Thrown internally when a generated code already exists; triggers a retry. */
 class CodeCollision extends Error {}
 
@@ -254,11 +282,25 @@ export const requestPairing = onCall(async (request) => {
       );
     }
 
+    // Denormalised so the recipient can render who is asking (P2-25) without
+    // a rule that lets anyone read anyone's profile. `callerSnap` was already
+    // read above for the already-paired check, so this costs no extra read.
+    //
+    // SNAPSHOT SEMANTICS, INTENDED: this is the name the sender had at the
+    // moment they asked. If they rename themselves afterwards the recipient
+    // still sees the old name. That is the honest thing to show — it is what
+    // the request was sent under — so do not "fix" it by resolving live.
+    const caller = callerSnap.data() ?? {};
+
     t.create(requestRef, {
       fromUid: uid,
       toUid: ownerId,
       status: "pending",
       createdAt: FieldValue.serverTimestamp(),
+      fromDisplayName:
+        boundedString(caller.displayName, MAX_DENORMALISED_NAME) ??
+        FALLBACK_SENDER_NAME,
+      fromAvatarUrl: boundedString(caller.avatarUrl, MAX_DENORMALISED_AVATAR),
     });
   });
 

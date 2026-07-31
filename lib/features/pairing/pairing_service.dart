@@ -15,6 +15,13 @@ abstract interface class PairingService {
 
   /// Withdraws a pending request the caller sent (P2-24's Cancel).
   Future<void> cancelPairingRequest(String requestId);
+
+  /// Accepts or declines a request addressed to the caller (**P2-09b**).
+  ///
+  /// Accepting returns the new couple's id. Declining returns null — and
+  /// writes `expired`, not `rejected`, so the sender is never told a person
+  /// refused (**PI-05**).
+  Future<String?> respondToPairing(String requestId, {required bool accept});
 }
 
 class FirebaseFunctionsPairingService implements PairingService {
@@ -41,5 +48,17 @@ class FirebaseFunctionsPairingService implements PairingService {
     await _functions.httpsCallable('cancelPairingRequest').call({
       'requestId': requestId,
     });
+  }
+
+  @override
+  Future<String?> respondToPairing(
+    String requestId, {
+    required bool accept,
+  }) async {
+    final result = await _functions.httpsCallable('respondToPairing').call({
+      'requestId': requestId,
+      'accept': accept,
+    });
+    return (result.data as Map)['coupleId'] as String?;
   }
 }

@@ -1,16 +1,3 @@
-/// The eight quick-reaction emoji a new account starts with — the same set the
-/// feed's tray offers today.
-const defaultFavoriteEmojis = <String>[
-  '❤️',
-  '😂',
-  '🥹',
-  '🔥',
-  '🫶',
-  '🌙',
-  '🧋',
-  '🐈',
-];
-
 /// A row of `users/{uid}` (brief §9).
 class UserProfile {
   const UserProfile({
@@ -68,23 +55,5 @@ class UserProfile {
         final Object value => (value as dynamic).toDate() as DateTime,
       },
     );
-  }
-
-  /// The document written on first sign-in.
-  ///
-  /// `coupleId` is written exactly once, as null, and never touched again by
-  /// the client.
-  static Map<String, dynamic> initialDocument({
-    required String displayName,
-    required Object createdAt,
-  }) {
-    return <String, dynamic>{
-      'displayName': displayName,
-      'avatarUrl': null,
-      'coupleId': null,
-      'favoriteEmojis': defaultFavoriteEmojis,
-      'accentColor': null,
-      'createdAt': createdAt,
-    };
   }
 }

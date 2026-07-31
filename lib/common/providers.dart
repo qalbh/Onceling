@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/auth/auth_service.dart';
 import '../features/auth/models/user_profile.dart';
+import '../features/auth/profile_service.dart';
+import '../features/pairing/models/pairing_request.dart';
 import '../features/pairing/pairing_service.dart';
 
 /// Riverpod roots for the Firebase SDKs.
@@ -41,11 +43,16 @@ final pairingServiceProvider = Provider<PairingService>(
   (ref) => FirebaseFunctionsPairingService(ref.watch(functionsProvider)),
 );
 
+/// Client edge of the server-side profile write (**P2-30**, **P2-35**).
+final profileServiceProvider = Provider<ProfileService>(
+  (ref) => FirebaseFunctionsProfileService(ref.watch(functionsProvider)),
+);
+
 /// Email/password operations and first-sign-in profile creation.
 final authServiceProvider = Provider<AuthService>(
   (ref) => FirebaseAuthService(
     ref.watch(firebaseAuthProvider),
-    ref.watch(firestoreProvider),
+    ref.watch(profileServiceProvider),
     ref.watch(pairingServiceProvider),
   ),
 );
@@ -67,5 +74,57 @@ final currentUserProvider = StreamProvider<UserProfile?>((ref) {
         (snapshot) => snapshot.exists
             ? UserProfile.fromFirestore(snapshot.id, snapshot.data()!)
             : null,
+      );
+});
+
+/// Pending requests addressed to the signed-in user (**P2-25**).
+///
+/// A list, not a single document: several people can be asking at once, and
+/// the accept transaction expires the losers rather than the UI hiding them.
+///
+/// The `toUid == me` filter is not cosmetic. Rules grant `list` only for a
+/// query that provably stays inside the caller's own requests, so dropping it
+/// does not return more rows — it returns permission-denied.
+final incomingRequestsProvider = StreamProvider<List<PairingRequest>>((ref) {
+  final user = ref.watch(authStateProvider).valueOrNull;
+  if (user == null) return Stream.value(const []);
+
+  return ref
+      .watch(firestoreProvider)
+      .collection('pairingRequests')
+      .where('toUid', isEqualTo: user.uid)
+      .where('status', isEqualTo: 'pending')
+      .orderBy('createdAt', descending: true)
+      .snapshots()
+      .map(
+        (snapshot) => snapshot.docs
+            .map((doc) => PairingRequest.fromFirestore(doc.id, doc.data()))
+            .toList(),
+      );
+});
+
+/// The caller's most recently sent request, whatever its status (**P2-24**).
+///
+/// Deliberately *not* filtered to pending. The sender has to see the moment it
+/// becomes `expired` — filtering to pending would make a settled request
+/// silently vanish, which reads as the app losing it rather than answering.
+final outgoingRequestProvider = StreamProvider<PairingRequest?>((ref) {
+  final user = ref.watch(authStateProvider).valueOrNull;
+  if (user == null) return Stream.value(null);
+
+  return ref
+      .watch(firestoreProvider)
+      .collection('pairingRequests')
+      .where('fromUid', isEqualTo: user.uid)
+      .orderBy('createdAt', descending: true)
+      .limit(1)
+      .snapshots()
+      .map(
+        (snapshot) => snapshot.docs.isEmpty
+            ? null
+            : PairingRequest.fromFirestore(
+                snapshot.docs.first.id,
+                snapshot.docs.first.data(),
+              ),
       );
 });

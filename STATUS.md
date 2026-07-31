@@ -146,6 +146,12 @@ there is data.
       transaction is the only thing allowed to set it. Once that rule exists the
       trigger buys nothing, and it would need Blaze (P2-16) to deploy, meaning
       development against something unshippable.*
+      ***Superseded by P2-35.** The write is now the `ensureUserProfile` callable —
+      neither a client write nor an Auth trigger. The reasoning above still holds
+      against an Auth trigger, but "protected by rules" no longer describes this
+      path: `allow create` is closed and the Admin SDK bypasses rules, so the
+      function is the only validator. The headline's `coupleId: null` is also only
+      true for a genuinely new account — a recreated profile restores the real one.*
       *Precedes P2-08 — the code generator needs somewhere to write.*
 - [x] **P2-08** Six-character code generation with a uniqueness lookup document
       *`ensurePairingCode()` callable, idempotent — returns the existing code
@@ -246,6 +252,12 @@ there is data.
       backstopped by contention on the sweep query's read set, so they only fail once
       that is removed too; race 4 needs the not-pending guard gone as well. Worth
       recording: the preconditions are not the only thing holding the invariant up.*
+- [x] **P2-33** *(done in this change)* Emulator seed script — five test users with
+      profiles and pairing codes, idempotent, `--reset` supported, refuses to run
+      against a non-emulator target.
+      *`tools/seed-emulator.mjs`, run with `cd tools && npm run seed`. Codes are
+      claimed by calling `claimPairingCode` — the same function `ensurePairingCode`
+      wraps — so seeded state is indistinguishable from a real user's.*
 - [ ] **P2-19** Google sign-in wiring — SHA-1 and SHA-256 fingerprints registered in
       Firebase (Android), reversed client ID as URL scheme in `Info.plist` (iOS),
       `google_sign_in` package. The provider is already enabled in the console with
@@ -258,17 +270,42 @@ there is data.
       not `localhost`. Blocks any Android testing against the emulator.
 - [ ] **P2-22** Replace the duck-typed `toDate()` in `feed_item_mapper.dart` with a
       real `Timestamp` cast now that `cloud_firestore` has landed. Update mapper tests.
-- [ ] **P2-23** Send-confirmation sheet — after entering a valid code, confirm before
+- [x] **P2-23** Send-confirmation sheet — after entering a valid code, confirm before
       sending. Echoes the code back so a typo is catchable. Shows nothing about the
       code's owner: B must learn nothing about A before A accepts.
-- [ ] **P2-24** Waiting state on the pairing screen — who the request went to, when,
+      *`code-not-found`, `owner-already-paired` and `rate-limited` share one
+      sentence, asserted by a test. Giving them distinct copy would rebuild in the
+      UI the enumeration oracle the callable deliberately removed.*
+- [x] **P2-24** Waiting state on the pairing screen — who the request went to, when,
       and a Cancel action. Until push lands (**P3-04**) it must say plainly that the
       partner sees it next time they open the app.
-- [ ] **P2-25** Incoming request sheet — shows the sender's display name and avatar.
+      *`outgoingRequestProvider` is unfiltered by status on purpose: filtering to
+      pending would make a settled request vanish rather than answer. The expired
+      copy is "No answer yet"; a test asserts the words declined/reject/refused
+      never reach the screen (**PI-05**).*
+- [x] **P2-25** Incoming request sheet — shows the sender's display name and avatar.
       Accept / Not now. Multiple pending requests render as a list; accepting one
       dismisses the others.
-- [ ] **P2-26** Paired confirmation moment — full-screen, both sides, before the feed
+      *The name is denormalised onto the request by `requestPairing`
+      (`fromDisplayName`, `fromAvatarUrl`) rather than read from the sender's
+      profile. Widening the users read rule was considered and rejected: rules
+      cannot run queries, so "anyone with a pending request to me" is inexpressible
+      and the only rule that compiles is "any signed-in user reads any profile" —
+      an enumerable account directory. Both fields are bounded and defaulted
+      server-side: they are user-controlled text crossing to another person.
+      The name is a **snapshot** from send time and does not follow a later
+      rename — that is what the request was sent under.*
+- [x] **P2-26** Paired confirmation moment — full-screen, both sides, before the feed
       opens. Activation is brief §11's single most important metric.
+      *A `/paired` route the gate permits, armed by `pairingCelebrationProvider`
+      watching the profile stream for coupleId going null → non-null. A transition
+      detector rather than a flag on the Accept button, because only one partner
+      taps anything — B's coupleId changes with no local action, and watching the
+      stream is the one mechanism that fires for both sides. "Once and never again"
+      rests on *did this session watch coupleId appear*, not *is there a coupleId*,
+      so a cold start on a paired account routes straight to the feed. A missing
+      profile document is explicitly not treated as unpaired, or every cold start
+      would arm it.*
 - [x] **P2-27** Rate limiting on `requestPairing`. Moved forward from **P3-05** because
       **P2-23**'s asymmetry means an attacker spraying requests at guessed codes learns
       a real user exists on every accept. **PI-05** covers the sender's side; only rate
@@ -281,6 +318,49 @@ there is data.
       timezone-independent — 7 days is 7 days — so this is **not** blocked by Q3 or by
       **P3-02**. It can share **P3-02**'s schedule if convenient, but does not require
       one.
+- [x] **P2-34** The splash error state has no escape. A signed-in user whose profile
+      document is missing sees only a retry, and retry cannot help if the P2-30 write
+      never landed — the document does not exist to appear. The user is stuck until
+      they delete the app. Add a sign-out action to that screen, and consider offering
+      to re-run the profile write. Encountered twice during development with a working
+      write path; a user whose write actually failed has no recovery.
+      *Both actions shipped. "Set up my profile" calls `AuthService.recoverProfile()`,
+      which re-runs `_settleProfile` for the current user — the same write `signIn`
+      already performs on every sign-in, and `ensureProfile` returns an existing
+      document untouched rather than clobbering it. Sign-out is always present as the
+      fallback, because it is the only recovery that does not depend on the server
+      doing anything.*
+      *Copy branches on the actual failure: a resolved-but-absent profile reads
+      "We couldn't finish setting up your account", not "Check your connection",
+      which is wrong and misleading when the network is fine.*
+- [x] **P2-35** `ensureProfile` recreates a missing profile with `coupleId: null`,
+      which is wrong for a user who is still a member of a couple. The result is the
+      exact incoherent state `assertPairingInvariant` exists to catch: `couples/{id}`
+      lists them, their own `coupleId` is empty. Worse, it is recoverable-looking —
+      the gate routes them to pairing, `ensurePairingCode` succeeds because their
+      profile now reads unpaired, and they can join a *second* couple. Every
+      precondition passes because each reads the profile that is lying.
+      Not client-reachable (rules deny profile deletes) and not new — sign-in has
+      always done this — but **P2-34** put a button on it.
+      *The fix could not go where it was first scoped. `ensureProfile` was
+      client-side Dart, and probes showed a client can neither query `couples`
+      (`list` is false, so it cannot discover its own membership) nor write
+      `coupleId` — the rule CLAUDE.md calls non-negotiable. So the write moved:
+      `ensureUserProfile` in `functions/src/profile.ts` is now the only writer of a
+      profile document, for new accounts as well as recovery.*
+      *Three cases: in a couple restores that `coupleId`; in none writes null; in
+      more than one logs the uid and both couple ids and refuses, because picking
+      one would turn a detectable inconsistency into a permanent invisible wrong
+      answer. Existing profiles return before the couples query, so the extra read
+      is only paid on the create path — proven by a test that would throw
+      `multiple-couples` if the query ran.*
+      *`allow create` on `users` is now closed (auditor 5/5, 11 red-team probes).
+      That moved three create-only guarantees onto the function, which satisfies
+      them by construction rather than validation — it writes a fixed literal, so
+      no caller-supplied key reaches the document. Nine tests pin them.*
+      *No index needed: a single `array-contains` filter with no other filter or
+      `orderBy` uses the automatic single-field index. `firestore.indexes.json` is
+      untouched.*
 - [ ] **P2-31** Validate `favoriteEmojis` element contents. The rule bounds the list
       to 8 entries but Firestore rules have no per-element expression — a 200KB string
       in one entry was accepted under probe. Self-scoped and capped by the 1MiB
@@ -358,6 +438,10 @@ Non-blocking. Fix when convenient.
       was designed for that. Any refactor that moves the sweep out of the transaction
       removes a correctness mechanism while leaving every test green. Warning comment
       is at the call site.
+- [ ] **D-12** `ensureUserProfile` absorbs an ALREADY_EXISTS race by re-reading and
+      reporting the winner's document. `.create()` was kept over `.set()` deliberately
+      — `set` would clobber a document written between the existence check and the
+      write. Recheck if the function's read/write shape changes.
 
 ---
 

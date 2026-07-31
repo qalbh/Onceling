@@ -1,10 +1,9 @@
 import 'dart:developer' as developer;
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../pairing/pairing_service.dart';
-import 'models/user_profile.dart';
+import 'profile_service.dart';
 
 /// An auth problem already translated into something a person can read.
 ///
@@ -33,15 +32,28 @@ abstract interface class AuthService {
   });
 
   Future<void> signOut();
+
+  /// Re-runs the **P2-30** profile write for the already-signed-in user
+  /// (**P2-34**).
+  ///
+  /// Recovery for an account whose `users/{uid}` document is missing — the
+  /// sign-up that died between creating the account and writing the document.
+  /// Retrying a read cannot fix that: the document does not exist to appear.
+  ///
+  /// Safe to expose because it is the *same* write `signIn` already performs
+  /// on every sign-in, and [FirebaseAuthService.ensureProfile] returns an
+  /// existing document untouched rather than clobbering it. Anyone worried
+  /// about this button should be equally worried about signing in.
+  Future<void> recoverProfile();
 }
 
 /// Email/password sign-in, sign-up and sign-out, plus the `users/{uid}`
 /// document that has to exist before anything else in Phase 2 works.
 class FirebaseAuthService implements AuthService {
-  const FirebaseAuthService(this._auth, this._firestore, this._pairing);
+  const FirebaseAuthService(this._auth, this._profiles, this._pairing);
 
   final FirebaseAuth _auth;
-  final FirebaseFirestore _firestore;
+  final ProfileService _profiles;
   final PairingService _pairing;
 
   @override
@@ -79,14 +91,29 @@ class FirebaseAuthService implements AuthService {
   @override
   Future<void> signOut() => _auth.signOut();
 
+  @override
+  Future<void> recoverProfile() async {
+    final user = _auth.currentUser;
+    // Nothing to recover for a signed-out caller; the gate already sends them
+    // to sign-in.
+    if (user == null) return;
+    await _settleProfile(user);
+  }
+
   /// Profile document, then pairing code — the P2-30 write followed by the
-  /// P2-08 claim, both idempotent.
+  /// P2-08 claim, both idempotent, both server-side.
+  ///
+  /// The profile write is a callable rather than a client write (**P2-35**):
+  /// recreating a missing profile has to restore the caller's real `coupleId`,
+  /// and the client can neither read it nor write it. Name resolution moved
+  /// with it — the server reads the auth token, so the only thing the client
+  /// chooses is the name the person typed.
   Future<void> _settleProfile(User user, {String? displayName}) async {
-    final profile = await ensureProfile(user, displayName: displayName);
+    final profile = await _profiles.ensureProfile(displayName: displayName);
 
     // Only the unpaired-and-codeless need a code. Failure here is not fatal:
     // the pairing screen retries the same idempotent callable.
-    if (profile['coupleId'] == null && profile['pairingCode'] == null) {
+    if (profile.coupleId == null && profile.pairingCode == null) {
       try {
         await _pairing.ensurePairingCode();
       } catch (error) {
@@ -96,41 +123,6 @@ class FirebaseAuthService implements AuthService {
         );
       }
     }
-  }
-
-  /// Creates `users/{uid}` if it is missing. Idempotent — signing in again
-  /// leaves an existing document untouched rather than clobbering it. Returns
-  /// the document's data either way.
-  Future<Map<String, dynamic>> ensureProfile(
-    User user, {
-    String? displayName,
-  }) async {
-    final document = _firestore.collection('users').doc(user.uid);
-
-    final existing = await document.get();
-    if (existing.exists) return existing.data() ?? {};
-
-    final data = UserProfile.initialDocument(
-      displayName: _resolveDisplayName(user, displayName),
-      createdAt: FieldValue.serverTimestamp(),
-    );
-    await document.set(data);
-    return data;
-  }
-
-  /// Sign-up input, else whatever the provider gave us, else the email's
-  /// local-part. Never empty — Security Rules reject a blank display name.
-  String _resolveDisplayName(User user, String? provided) {
-    final candidates = [
-      provided,
-      user.displayName,
-      user.email?.split('@').first,
-    ];
-    for (final candidate in candidates) {
-      final trimmed = candidate?.trim() ?? '';
-      if (trimmed.isNotEmpty) return trimmed;
-    }
-    return 'Someone';
   }
 
   Future<T> _guard<T>(Future<T> Function() operation) async {

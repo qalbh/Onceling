@@ -1,0 +1,11 @@
+{
+  "name": "onceling-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Emulator dev tooling. Not deployed, not app code.",
+  "scripts": {
+    "seed": "GCLOUD_PROJECT=qalb-coupleapp-dev FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 node seed-emulator.mjs",
+    "seed:reset": "npm run seed -- --reset"
+  }
+}

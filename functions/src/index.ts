@@ -19,3 +19,4 @@ export {
   requestPairing,
   respondToPairing,
 } from "./pairing.js";
+export { ensureUserProfile } from "./profile.js";

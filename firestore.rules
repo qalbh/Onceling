@@ -61,16 +61,16 @@ service cloud.firestore {
       // allowing one would turn users/ into a directory of every account.
       allow list: if false;
 
-      // A new account starts unpaired, always. coupleId is set only by
-      // P2-09b's transaction, which runs with admin privileges and bypasses
-      // these rules.
-      allow create: if isOwner(uid)
-                    && isWellFormedProfile(request.resource.data)
-                    && request.resource.data.coupleId == null
-                    // The code is claimed server-side after the profile
-                    // exists; a client cannot mint one at create time.
-                    && !('pairingCode' in request.resource.data)
-                    && request.resource.data.createdAt == request.time;
+      // Closed since P2-35. The profile is written only by the
+      // `ensureUserProfile` callable, which runs with admin privileges and
+      // bypasses these rules.
+      //
+      // This is a tightening, not a convenience. The client used to create its
+      // own profile with `coupleId: null`, which is the wrong answer for
+      // someone a couple still lists — and the client cannot compute the right
+      // one, because it can neither query `couples` nor write `coupleId`. With
+      // the write server-side there is no reason to leave the door open.
+      allow create: if false;
 
       // Not a flat field deny: Firestore evaluates the whole resulting
       // document, so a legitimate displayName edit carries coupleId along with
