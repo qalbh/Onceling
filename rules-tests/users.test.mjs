@@ -34,7 +34,9 @@ let testEnv;
 
 before(async () => {
   testEnv = await initializeTestEnvironment({
-    projectId: 'qalb-coupleapp-dev',
+    // Own namespace: node --test runs files in parallel, and a shared
+    // project would let one file's clearFirestore() wipe another's seed.
+    projectId: 'onceling-rules-users',
     firestore: {
       host: '127.0.0.1',
       port: 8080,

@@ -241,6 +241,9 @@ redirect (**P2-14**). Handle gating in one place, never per-screen.
 - Do not write golden tests test-first; generate the golden from verified output.
 - Security Rules tests live in `rules-tests/` and run with `npm test` in that
   directory, not under `flutter test`. Both must pass. When CI exists, it runs both.
+- Rules tests run in parallel under `node --test`. Each test file needs its own
+  emulator project namespace; sharing one means `clearFirestore()` in one file wipes
+  another mid-run. Two rule bugs during P2-09 were this, not the rules.
 
 ## Code conventions
 

@@ -36,29 +36,6 @@ class SecretRevealScreen extends StatefulWidget {
   /// while the tombstone survives.
   final String body;
 
-  /// Opens over the thread, letting it show through the scrim.
-  static Future<SecretRevealResult?> show(
-    BuildContext context,
-    SecretMessage secret, {
-    required String senderName,
-    required String body,
-  }) {
-    return Navigator.of(context).push<SecretRevealResult>(
-      PageRouteBuilder(
-        opaque: false,
-        barrierDismissible: false,
-        transitionDuration: const Duration(milliseconds: 320),
-        pageBuilder: (_, _, _) => SecretRevealScreen(
-          secret: secret,
-          senderName: senderName,
-          body: body,
-        ),
-        transitionsBuilder: (_, animation, _, child) =>
-            FadeTransition(opacity: animation, child: child),
-      ),
-    );
-  }
-
   @override
   State<SecretRevealScreen> createState() => _SecretRevealScreenState();
 }

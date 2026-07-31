@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../common/app_router.dart';
 import '../../../common/time_format.dart';
 import '../../../theme/theme_colors.dart';
 import '../../compose/compose_sheet.dart';
 import '../../mood/mood_sheet.dart';
 import '../../secret/screens/secret_reveal_screen.dart';
 import '../../secret/widgets/secret_opened_dialog.dart';
-import '../../settings/screens/settings_screen.dart';
 import '../models/feed_item.dart';
 import '../models/sample_thread.dart';
 import '../widgets/emoji_burst.dart';
@@ -20,8 +21,6 @@ import '../widgets/reaction_tray.dart';
 /// the mocks are both reachable without two accounts.
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key, this.viewerId = devonUid});
-
-  static const routeName = '/feed';
 
   /// uid of the signed-in reader. Comes from the auth provider at **P2-07**.
   final String viewerId;
@@ -123,11 +122,13 @@ class _FeedScreenState extends State<FeedScreen> {
     final secret = _items[index];
     if (secret is! SecretMessage || secret.isOpened) return;
 
-    final result = await SecretRevealScreen.show(
-      context,
-      secret,
-      senderName: memberName(secret.senderId),
-      body: _secretBodies[secret.id] ?? '',
+    final result = await context.push<SecretRevealResult>(
+      AppRoutes.secretReveal,
+      extra: SecretRevealArgs(
+        secret: secret,
+        senderName: memberName(secret.senderId),
+        body: _secretBodies[secret.id] ?? '',
+      ),
     );
     if (result == null || !mounted) return;
 
@@ -232,11 +233,7 @@ class _FeedScreenState extends State<FeedScreen> {
                   subtitle: '994 days · since 4 November 2023',
                   streak: 47,
                   viewerInitial: memberInitial(_viewerId),
-                  onOpenSettings: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => SettingsScreen(viewerId: _viewerId),
-                    ),
-                  ),
+                  onOpenSettings: () => context.push(AppRoutes.settings),
                   onSwapViewer: () =>
                       setState(() => _viewerId = partnerOf(_viewerId)),
                 ),

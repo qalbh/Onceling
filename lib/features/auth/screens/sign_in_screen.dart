@@ -22,8 +22,6 @@ class SignInScreen extends StatelessWidget {
     this.onUseEmailOrPhone,
   });
 
-  static const routeName = '/';
-
   /// Null until **P2-20** wires Apple; the button renders disabled.
   final VoidCallback? onContinueWithApple;
 

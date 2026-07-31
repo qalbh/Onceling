@@ -1,9 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/auth/auth_service.dart';
 import '../features/auth/models/user_profile.dart';
+import '../features/pairing/pairing_service.dart';
 
 /// Riverpod roots for the Firebase SDKs.
 ///
@@ -29,11 +31,22 @@ final authStateProvider = StreamProvider<User?>(
   (ref) => ref.watch(firebaseAuthProvider).authStateChanges(),
 );
 
+/// The Cloud Functions handle, already emulator-wired by `main()` in debug.
+final functionsProvider = Provider<FirebaseFunctions>(
+  (ref) => FirebaseFunctions.instance,
+);
+
+/// Client edge of the pairing callables.
+final pairingServiceProvider = Provider<PairingService>(
+  (ref) => FirebaseFunctionsPairingService(ref.watch(functionsProvider)),
+);
+
 /// Email/password operations and first-sign-in profile creation.
 final authServiceProvider = Provider<AuthService>(
   (ref) => FirebaseAuthService(
     ref.watch(firebaseAuthProvider),
     ref.watch(firestoreProvider),
+    ref.watch(pairingServiceProvider),
   ),
 );
 

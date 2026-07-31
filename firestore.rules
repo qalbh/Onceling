@@ -5,8 +5,9 @@ rules_version = '2';
 // The client is untrusted. Only collections with an explicit match block are
 // reachable; everything else falls through to the deny-all at the bottom.
 //
-// Collections so far: users (P2-30). pairingCodes, pairingRequests, couples,
-// items and secretBodies arrive with their own rules in P2-08 through P2-12.
+// Collections so far: users (P2-30), pairingCodes (P2-08), pairingRequests
+// (P2-09), rateLimits (P2-27). couples, items and secretBodies arrive with
+// their own rules at P2-09b and P2-12.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -18,13 +19,14 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    // Exactly these six keys, all present, all correctly typed and bounded.
-    // hasOnly blocks a client smuggling in fields the app never defined;
-    // hasAll blocks a partial write that would leave the document malformed.
+    // The six client keys all present and typed; pairingCode is the seventh,
+    // written only by the ensurePairingCode callable (admin, bypasses rules) —
+    // hasOnly admits it so a later client profile edit is not rejected for
+    // carrying it, but nothing lets a client introduce or change it.
     function isWellFormedProfile(data) {
       return data.keys().hasOnly([
                'displayName', 'avatarUrl', 'coupleId',
-               'favoriteEmojis', 'accentColor', 'createdAt'
+               'favoriteEmojis', 'accentColor', 'createdAt', 'pairingCode'
              ])
              && data.keys().hasAll([
                   'displayName', 'avatarUrl', 'coupleId',
@@ -45,6 +47,11 @@ service cloud.firestore {
              && data.createdAt is timestamp;
     }
 
+    // Field unchanged between existing and incoming, treating absent as null.
+    function fieldUnchanged(field) {
+      return request.resource.data.get(field, null) == resource.data.get(field, null);
+    }
+
     match /users/{uid} {
       // Only the owner. A partner reading the other's profile arrives with the
       // couple model (P2-12) and will be scoped by coupleId, not opened here.
@@ -60,6 +67,9 @@ service cloud.firestore {
       allow create: if isOwner(uid)
                     && isWellFormedProfile(request.resource.data)
                     && request.resource.data.coupleId == null
+                    // The code is claimed server-side after the profile
+                    // exists; a client cannot mint one at create time.
+                    && !('pairingCode' in request.resource.data)
                     && request.resource.data.createdAt == request.time;
 
       // Not a flat field deny: Firestore evaluates the whole resulting
@@ -70,11 +80,49 @@ service cloud.firestore {
       allow update: if isOwner(uid)
                     && isWellFormedProfile(request.resource.data)
                     && request.resource.data.coupleId == resource.data.coupleId
-                    && request.resource.data.createdAt == resource.data.createdAt;
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    // Like coupleId: server-owned in both directions. Carrying
+                    // it along unchanged is fine; setting, changing or
+                    // clearing it is not.
+                    && fieldUnchanged('pairingCode');
 
       // Account deletion is a server-side cascade, never a client dropping its
       // own row and orphaning everything that points at it.
       allow delete: if false;
+    }
+
+    // The code → owner lookup. Readable by nobody: knowing a code must not
+    // reveal who owns it (P2-23 — B learns nothing about A until A accepts),
+    // and the collection must not be enumerable. All access goes through the
+    // callables, which run with admin privileges.
+    match /pairingCodes/{code} {
+      allow read, write: if false;
+    }
+
+    // The handshake. Both ends may read their own requests; nobody writes —
+    // every mutation is a callable (request, cancel, and later respond).
+    match /pairingRequests/{requestId} {
+      allow get: if isSignedIn()
+                 && (request.auth.uid == resource.data.fromUid
+                     || request.auth.uid == resource.data.toUid);
+
+      // list allowed, but Firestore only grants a query that PROVABLY stays
+      // inside this rule — a filter on fromUid == uid or toUid == uid. An
+      // unfiltered or someone-else's query is rejected wholesale. Allowed
+      // rather than denied because P2-24 (waiting state) and P2-25 (incoming
+      // requests) both need to watch these as queries.
+      allow list: if isSignedIn()
+                  && (resource.data.fromUid == request.auth.uid
+                      || resource.data.toUid == request.auth.uid);
+
+      allow create, update, delete: if false;
+    }
+
+    // Request-budget counters. No client access in any direction: readable
+    // counters would tell an enumerator exactly when probing is free again,
+    // and writable ones would let them refill their own budget.
+    match /rateLimits/{uid} {
+      allow read, write: if false;
     }
 
     match /{document=**} {

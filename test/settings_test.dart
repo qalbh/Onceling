@@ -1,25 +1,36 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
+import 'package:couple_app/common/app_router.dart';
 import 'package:couple_app/features/auth/screens/sign_in_screen.dart';
-import 'package:couple_app/features/feed/models/sample_thread.dart';
+import 'package:couple_app/features/pairing/screens/pairing_screen.dart';
 import 'package:couple_app/features/settings/screens/settings_screen.dart';
 import 'package:couple_app/main.dart';
 
-Future<void> pumpSettings(WidgetTester tester) async {
+import 'test_doubles.dart';
+
+/// Boots the app signed in and unpaired (the gate parks on pairing, where
+/// settings is an allowed overlay), then pushes settings through the router.
+Future<void> pumpSettings(
+  WidgetTester tester, {
+  List<Override>? overrides,
+}) async {
   tester.view.physicalSize = const Size(1170, 2532);
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(const ProviderScope(child: OncelingApp()));
-
-  // Route straight to settings rather than walking the whole flow.
-  final navigator = tester.state<NavigatorState>(find.byType(Navigator));
-  navigator.push(
-    MaterialPageRoute<void>(
-      builder: (_) => const SettingsScreen(viewerId: mayaUid),
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: overrides ?? signedInOverrides(),
+      child: const OncelingApp(),
     ),
   );
+  await tester.pumpAndSettle();
+
+  GoRouter.of(
+    tester.element(find.byType(PairingScreen)),
+  ).push(AppRoutes.settings);
   await tester.pumpAndSettle();
 }
 
@@ -117,9 +128,11 @@ void main() {
     expect(find.text('Unpair from Devon'), findsOneWidget);
   });
 
-  testWidgets('confirming unpair returns to sign-in with no way back', (
+  testWidgets('confirming unpair lands on pairing — not sign-in', (
     tester,
   ) async {
+    // Unpairing does not sign you out: the account survives, the couple does
+    // not. The gate would bounce a signed-in user straight off sign-in anyway.
     await pumpSettings(tester);
 
     await tapRow(tester, 'Unpair from Devon');
@@ -128,9 +141,25 @@ void main() {
     await tester.tap(find.text('Unpair'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Onceling'), findsOneWidget);
     expect(find.byType(SettingsScreen), findsNothing);
-    // The whole stack is gone, so there is nothing to pop back to.
+    expect(find.byType(PairingScreen), findsOneWidget);
+    expect(find.byType(SignInScreen), findsNothing);
+  });
+
+  testWidgets('sign out from settings lands on sign-in without throwing', (
+    tester,
+  ) async {
+    final session = FakeSession();
+    addTearDown(session.dispose);
+
+    await pumpSettings(tester, overrides: session.overrides());
+
+    await tapRow(tester, 'Sign out');
+    await tester.pumpAndSettle();
+
+    // The redirect saw auth flip to null and took the whole app to sign-in.
     expect(find.byType(SignInScreen), findsOneWidget);
+    expect(find.byType(SettingsScreen), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

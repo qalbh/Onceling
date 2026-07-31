@@ -1,31 +1,41 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../common/app_router.dart';
 import '../../../common/app_toast.dart';
+import '../../../common/providers.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
-import '../../feed/screens/feed_screen.dart';
 import '../widgets/code_tiles.dart';
 import '../widgets/partner_code_field.dart';
 
 /// Pairing step: share your own code, or enter your partner's.
-class PairingScreen extends StatefulWidget {
+class PairingScreen extends ConsumerStatefulWidget {
   const PairingScreen({super.key, this.myCode = 'MK4Q7B', this.onPair});
 
-  static const routeName = '/pairing';
-
+  /// Fallback while the profile has no code yet — mock-era placeholder.
   final String myCode;
 
   /// Called with the partner's code once six characters are entered.
   final ValueChanged<String>? onPair;
 
   @override
-  State<PairingScreen> createState() => _PairingScreenState();
+  ConsumerState<PairingScreen> createState() => _PairingScreenState();
 }
 
-class _PairingScreenState extends State<PairingScreen> {
+class _PairingScreenState extends ConsumerState<PairingScreen> {
   static const _codeLength = 6;
   final _partnerCode = TextEditingController();
+
+  /// One claim attempt per screen visit; the callable is idempotent anyway.
+  bool _codeRequested = false;
+
+  /// Resolved in build(): the profile's real code, or the mock fallback.
+  String _shownCode = '';
 
   bool get _canPair => _partnerCode.text.length == _codeLength;
 
@@ -35,9 +45,34 @@ class _PairingScreenState extends State<PairingScreen> {
     super.dispose();
   }
 
+  /// P2-08 client edge: if the signed-in profile has no code, claim one. The
+  /// document stream repaints the tiles when the server write lands.
+  void _ensureCodeIfMissing() {
+    final profile = ref.read(currentUserProvider).valueOrNull;
+    if (_codeRequested ||
+        profile == null ||
+        profile.isPaired ||
+        profile.pairingCode != null) {
+      return;
+    }
+    _codeRequested = true;
+    ref.read(pairingServiceProvider).ensurePairingCode().catchError((
+      Object error,
+    ) {
+      developer.log('ensurePairingCode failed: $error', name: 'PairingScreen');
+      if (mounted) setState(() => _codeRequested = false); // allow retry
+      return '';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    ref.listen(currentUserProvider, (_, _) => _ensureCodeIfMissing());
+    _ensureCodeIfMissing();
+    _shownCode =
+        ref.watch(currentUserProvider).valueOrNull?.pairingCode ??
+        widget.myCode;
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
@@ -90,7 +125,7 @@ class _PairingScreenState extends State<PairingScreen> {
       children: [
         const _SectionLabel('YOUR CODE'),
         const SizedBox(height: 20),
-        CodeTiles(code: widget.myCode),
+        CodeTiles(code: _shownCode),
         const SizedBox(height: 22),
         Row(
           spacing: 14,
@@ -100,7 +135,7 @@ class _PairingScreenState extends State<PairingScreen> {
                 label: 'Copy code',
                 filled: false,
                 onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: widget.myCode));
+                  await Clipboard.setData(ClipboardData(text: _shownCode));
                   if (!mounted) return;
                   showAppToast(context, 'Code copied');
                 },
@@ -141,10 +176,10 @@ class _PairingScreenState extends State<PairingScreen> {
                     onPair(code);
                     return;
                   }
-                  // Pairing is one-way: the thread replaces this screen.
-                  Navigator.of(
-                    context,
-                  ).pushReplacementNamed(FeedScreen.routeName);
+                  // Pairing is one-way: the thread replaces this screen. The
+                  // redirect owns the real decision; this is the mock path
+                  // until P2-09b sets coupleId server-side.
+                  context.go(AppRoutes.feed);
                 }
               : null,
         ),

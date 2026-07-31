@@ -1,6 +1,9 @@
+import 'dart:developer' as developer;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../pairing/pairing_service.dart';
 import 'models/user_profile.dart';
 
 /// An auth problem already translated into something a person can read.
@@ -35,10 +38,11 @@ abstract interface class AuthService {
 /// Email/password sign-in, sign-up and sign-out, plus the `users/{uid}`
 /// document that has to exist before anything else in Phase 2 works.
 class FirebaseAuthService implements AuthService {
-  const FirebaseAuthService(this._auth, this._firestore);
+  const FirebaseAuthService(this._auth, this._firestore, this._pairing);
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
+  final PairingService _pairing;
 
   @override
   Future<void> signIn({required String email, required String password}) async {
@@ -52,7 +56,7 @@ class FirebaseAuthService implements AuthService {
     // Defensive: an account can exist in Auth with no document — created before
     // this code shipped, or a sign-up that died between the two steps.
     final user = credential.user;
-    if (user != null) await ensureProfile(user);
+    if (user != null) await _settleProfile(user);
   }
 
   @override
@@ -69,26 +73,49 @@ class FirebaseAuthService implements AuthService {
     );
 
     final user = credential.user;
-    if (user != null) await ensureProfile(user, displayName: displayName);
+    if (user != null) await _settleProfile(user, displayName: displayName);
   }
 
   @override
   Future<void> signOut() => _auth.signOut();
 
+  /// Profile document, then pairing code — the P2-30 write followed by the
+  /// P2-08 claim, both idempotent.
+  Future<void> _settleProfile(User user, {String? displayName}) async {
+    final profile = await ensureProfile(user, displayName: displayName);
+
+    // Only the unpaired-and-codeless need a code. Failure here is not fatal:
+    // the pairing screen retries the same idempotent callable.
+    if (profile['coupleId'] == null && profile['pairingCode'] == null) {
+      try {
+        await _pairing.ensurePairingCode();
+      } catch (error) {
+        developer.log(
+          'ensurePairingCode after sign-in failed: $error',
+          name: 'AuthService',
+        );
+      }
+    }
+  }
+
   /// Creates `users/{uid}` if it is missing. Idempotent — signing in again
-  /// leaves an existing document untouched rather than clobbering it.
-  Future<void> ensureProfile(User user, {String? displayName}) async {
+  /// leaves an existing document untouched rather than clobbering it. Returns
+  /// the document's data either way.
+  Future<Map<String, dynamic>> ensureProfile(
+    User user, {
+    String? displayName,
+  }) async {
     final document = _firestore.collection('users').doc(user.uid);
 
     final existing = await document.get();
-    if (existing.exists) return;
+    if (existing.exists) return existing.data() ?? {};
 
-    await document.set(
-      UserProfile.initialDocument(
-        displayName: _resolveDisplayName(user, displayName),
-        createdAt: FieldValue.serverTimestamp(),
-      ),
+    final data = UserProfile.initialDocument(
+      displayName: _resolveDisplayName(user, displayName),
+      createdAt: FieldValue.serverTimestamp(),
     );
+    await document.set(data);
+    return data;
   }
 
   /// Sign-up input, else whatever the provider gave us, else the email's

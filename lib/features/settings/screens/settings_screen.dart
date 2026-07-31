@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../common/app_router.dart';
 import '../../../common/app_toast.dart';
 import '../../../common/providers.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
 import '../../../theme/theme_glyphs.dart';
-import '../../auth/screens/sign_in_screen.dart';
 import '../../feed/models/sample_thread.dart';
 import '../../feed/widgets/feed_header.dart';
 import '../../feed/widgets/reaction_tray.dart';
@@ -21,8 +22,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
     this.anniversary = '4 November 2023',
     this.streak = 47,
   });
-
-  static const routeName = '/settings';
 
   final String viewerId;
   final String coupleName;
@@ -51,10 +50,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _signOut() async {
-    // Nothing to navigate to — the auth gate is **P2-14**. Signing out simply
-    // ends the session; the screen stays where it is.
+    // No navigation here: the redirect sees the auth change and lands the
+    // whole app on sign-in. Navigating too would race it.
     await ref.read(authServiceProvider).signOut();
-    if (mounted) showAppToast(context, 'Signed out');
   }
 
   Future<void> _unpair() async {
@@ -65,10 +63,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
     if (confirmed != true || !mounted) return;
 
-    // Everything is gone — there is nothing to come back to.
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(SignInScreen.routeName, (route) => false);
+    // Mock path until the unpair Function exists. The real flow clears
+    // coupleId server-side and the gate lands on pairing — a signed-in user
+    // cannot reach sign-in, the redirect would bounce them straight back.
+    if (mounted) context.go(AppRoutes.pairing);
   }
 
   @override
@@ -153,7 +151,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       spacing: 16,
       children: [
         GestureDetector(
-          onTap: () => Navigator.of(context).maybePop(),
+          onTap: () => context.pop(),
           child: Container(
             width: 44,
             height: 44,

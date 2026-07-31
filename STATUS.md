@@ -2,7 +2,7 @@
 
 **Phase 2 of 4 · Last updated: 2026-07-31**
 
-**Now:** P2-08 — six-character code generation with a uniqueness lookup document
+**Now:** P2-09b — respondToPairing, the accept transaction
 
 ---
 
@@ -65,9 +65,20 @@ Flagged in review. Small, keeps getting deferred because none of it is code.
       It does not currently exist anywhere in the app. **Gates external testing.**
 - [ ] **PI-03** Decide whether "Mood nudges" stays — it is not in brief §6.
 - [ ] **PI-04** Re-upload the updated brief to the Claude project.
-- [ ] **PI-05** A declined request must not tell the sender they were declined. It
-      expires silently. Naming the refusal is unkind, and it confirms to a
-      code-guesser that a real person owns that code.
+- [ ] **PI-05** A declined request must never tell the sender they were refused. It
+      surfaces as 'expired' — the same status the 7-day timeout writes. The sender
+      learns the answer is no; they are never told a person said no.
+      *Reconsidered after the P2-09 audit: this is a kindness rule, not a security
+      one. `requestPairing` returns a distinct error for a non-existent code, so an
+      enumerator learns a code is real the moment a request succeeds — decline
+      silence adds nothing. Rate limiting (P2-27) is the whole defence. The competing
+      harm is leaving a sender waiting 7 days on an answer that arrived in 30
+      seconds.*
+      *Timing is not hidden and that is deliberate: 'expired' arriving in 30 seconds
+      versus 7 days does imply a decline. The trade is accepted — leaving a sender
+      waiting a week on an answer that arrived in seconds is the worse harm, and the
+      security rationale for silence does not survive P2-09 returning a distinct error
+      for a non-existent code.*
 
 ---
 
@@ -136,16 +147,33 @@ there is data.
       trigger buys nothing, and it would need Blaze (P2-16) to deploy, meaning
       development against something unshippable.*
       *Precedes P2-08 — the code generator needs somewhere to write.*
-- [ ] **P2-08** Six-character code generation with a uniqueness lookup document
-- [ ] **P2-09** `requestPairing(code)` callable — validates the code exists, refuses
+- [x] **P2-08** Six-character code generation with a uniqueness lookup document
+      *`ensurePairingCode()` callable, idempotent — returns the existing code
+      rather than regenerating. Alphabet drops 0/O/1/I/L because codes get read
+      aloud and typed by hand. Claims `pairingCodes/{code}` with transaction
+      create semantics so a collision fails instead of stealing an owner;
+      retries up to 10, then resource-exhausted.*
+- [x] **P2-09** `requestPairing(code)` callable — validates the code exists, refuses
       self-pairing and already-paired users, creates a `pairingRequests` document with
       status 'pending'. Rate limited (see **P2-27**).
+      *Six rejections, each with a distinct `details.reason`; success returns
+      `{requestId}` and nothing else, so B learns nothing about A (**P2-23**).*
 - [ ] **P2-09b** `respondToPairing(requestId, accept)` callable — the transaction that
       matters. On accept: creates the couple, sets `coupleId` on both users, rejects
       every other pending request for both users, deletes both pairing codes. Atomic,
       idempotent, safe against two accepts landing simultaneously.
-- [ ] **P2-09c** `cancelPairingRequest(requestId)` callable — sender-initiated,
+      *Auditor minor from P2-09: a declined request must not become a read
+      oracle. Rules let the sender read their own request, so writing
+      `status: 'rejected'` would tell them they were declined — exactly what
+      **PI-05** forbids.*
+      Decline must not write `'rejected'` — the sender can read their own request and
+      would learn they were refused. Write `'expired'`, the same status the 7-day
+      timeout (**P2-28**) writes, and surface it to the sender immediately. Do not use
+      `'cancelled'` — **P2-09c** writes that, so a sender who did not cancel would
+      infer a decline.
+- [x] **P2-09c** `cancelPairingRequest(requestId)` callable — sender-initiated,
       supports **P2-24**.
+      *Only `fromUid`, only while pending; sets status to 'cancelled'.*
 - [ ] **P2-10** Security Rules — all reads/writes scoped to the requester's `coupleId`.
       `pairingRequests` and `pairingCodes` both need rules in the same change that
       introduces them. The `users` rule must allow a user to create and update their
@@ -170,7 +198,15 @@ there is data.
 - [ ] **P2-12** Feed persistence with a real-time listener and pagination
 - [ ] **P2-13** Photo upload to Cloud Storage. *Enable the Storage emulator first —
       until it is on, Functions calls to Cloud Storage hit the real dev bucket.*
-- [ ] **P2-14** Migrate named routes → `go_router` with a single auth redirect
+- [x] **P2-14** Migrate named routes → `go_router` with a single auth redirect
+      *`resolveRedirect()` in `lib/common/app_router.dart` is the whole gate, a
+      pure function: loading → splash (never a sign-in flash), signed-in with no
+      profile document → still splash (the sign-up write race), then coupleId
+      routes pairing vs feed. Splash owns a 6s timeout with retry. Riverpod
+      drives `refreshListenable`, so setting `coupleId` in the Emulator UI moves
+      the app live. Sheets stayed sheets; the secret reveal became a route.
+      Unpair's mock path now lands on pairing, not sign-in — a signed-in user
+      cannot reach sign-in, the gate bounces them.*
 - [ ] **P2-15** Loading / empty / error states on every read
 - [ ] **P2-16** Upgrade **dev** to Blaze; set a $5 budget alert.
       *Needed to deploy Functions. The emulator runs them locally on Spark, so
@@ -210,10 +246,14 @@ there is data.
       dismisses the others.
 - [ ] **P2-26** Paired confirmation moment — full-screen, both sides, before the feed
       opens. Activation is brief §11's single most important metric.
-- [ ] **P2-27** Rate limiting on `requestPairing`. Moved forward from **P3-05** because
+- [x] **P2-27** Rate limiting on `requestPairing`. Moved forward from **P3-05** because
       **P2-23**'s asymmetry means an attacker spraying requests at guessed codes learns
       a real user exists on every accept. **PI-05** covers the sender's side; only rate
       limiting covers the guessing. This is a **P2-09** dependency, not a later polish.
+      *5 requests per uid per hour, fixed window, counted in `rateLimits/{uid}`
+      with no client access. Budget is spent *before* validation, so failed
+      probes are not free and an exhausted caller gets the same
+      resource-exhausted answer whether the code exists or not — no oracle.*
 - [ ] **P2-28** Expire pending requests after 7 days. Scheduled Function. Expiry is
       timezone-independent — 7 days is 7 days — so this is **not** blocked by Q3 or by
       **P3-02**. It can share **P3-02**'s schedule if convenient, but does not require
@@ -226,6 +266,12 @@ there is data.
 - [ ] **P2-32** Email verification flow. `firestore.rules` deliberately does not
       require `email_verified` — there is no verification flow, so requiring it would
       break sign-up. Revisit before **P2-19** and **P2-20**. *Auditor minor, P2-29.*
+      Sequencing matters: **P2-19** and **P2-20** bring providers that verify email
+      addresses themselves, so Google and Apple accounts arrive with `email_verified`
+      already true. Shipping either one creates two classes of account — provider
+      accounts verified, email/password accounts not — while `firestore.rules` treats
+      them identically. That is the moment the deliberate omission stops being
+      harmless. Resolve P2-32 before whichever of P2-19/P2-20 ships first.
 
 ---
 
@@ -279,6 +325,9 @@ Non-blocking. Fix when convenient.
 - [ ] **D-09** `rules-tests/` carries its own Node toolchain (86 packages).
       `@firebase/rules-unit-testing` peer-requires `firebase@^11`, not 12. Working,
       but the mismatch will surface on upgrade.
+- [ ] **D-10** The `fromUid`+`toUid`+`status` composite index for the duplicate-check
+      query is declared in `firestore.indexes.json` but untested — the emulator does
+      not enforce indexes. Verify against dev before **P2-16**.
 
 ---
 

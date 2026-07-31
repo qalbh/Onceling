@@ -20,6 +20,7 @@ class UserProfile {
     this.coupleId,
     this.avatarUrl,
     this.accentColor,
+    this.pairingCode,
     this.createdAt,
   });
 
@@ -34,6 +35,11 @@ class UserProfile {
 
   final List<String> favoriteEmojis;
   final String? accentColor;
+
+  /// Six characters, claimed and written only by the `ensurePairingCode`
+  /// callable. Null until the first successful call; deleted by P2-09b when
+  /// the pair forms. The client never writes this — rules reject it.
+  final String? pairingCode;
 
   /// Null for the moment between a local write and the server timestamp
   /// resolving — `serverTimestamp()` reads back as null in the pending snapshot.
@@ -53,6 +59,7 @@ class UserProfile {
               .toList() ??
           const [],
       accentColor: data['accentColor'] as String?,
+      pairingCode: data['pairingCode'] as String?,
       // Duck-typed for the same reason as the feed mapper: a pending write has
       // no Timestamp yet. See P2-22.
       createdAt: switch (data['createdAt']) {

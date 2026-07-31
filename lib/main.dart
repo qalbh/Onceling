@@ -7,10 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'features/auth/screens/sign_in_screen.dart';
-import 'features/feed/screens/feed_screen.dart';
-import 'features/pairing/screens/pairing_screen.dart';
-import 'features/settings/screens/settings_screen.dart';
+import 'common/app_router.dart';
 import 'firebase_options_dev.dart';
 import 'theme/app_theme.dart';
 
@@ -44,24 +41,18 @@ void _connectToEmulators() {
   FirebaseFunctions.instance.useFunctionsEmulator(host, 5001);
 }
 
-class OncelingApp extends StatelessWidget {
+class OncelingApp extends ConsumerWidget {
   const OncelingApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    return MaterialApp.router(
       title: 'Onceling',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
-      initialRoute: SignInScreen.routeName,
-      routes: {
-        SignInScreen.routeName: (_) => const SignInScreen(),
-        PairingScreen.routeName: (_) => const PairingScreen(),
-        FeedScreen.routeName: (_) => const FeedScreen(),
-        SettingsScreen.routeName: (_) => const SettingsScreen(),
-      },
+      routerConfig: ref.watch(routerProvider),
     );
   }
 }
