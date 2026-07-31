@@ -1,7 +1,82 @@
 rules_version = '2';
 
+// Onceling — Firestore Security Rules.
+//
+// The client is untrusted. Only collections with an explicit match block are
+// reachable; everything else falls through to the deny-all at the bottom.
+//
+// Collections so far: users (P2-30). pairingCodes, pairingRequests, couples,
+// items and secretBodies arrive with their own rules in P2-08 through P2-12.
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Exactly these six keys, all present, all correctly typed and bounded.
+    // hasOnly blocks a client smuggling in fields the app never defined;
+    // hasAll blocks a partial write that would leave the document malformed.
+    function isWellFormedProfile(data) {
+      return data.keys().hasOnly([
+               'displayName', 'avatarUrl', 'coupleId',
+               'favoriteEmojis', 'accentColor', 'createdAt'
+             ])
+             && data.keys().hasAll([
+                  'displayName', 'avatarUrl', 'coupleId',
+                  'favoriteEmojis', 'accentColor', 'createdAt'
+                ])
+             && data.displayName is string
+             && data.displayName.size() > 0
+             && data.displayName.size() <= 40
+             && (data.avatarUrl == null
+                 || (data.avatarUrl is string && data.avatarUrl.size() <= 512))
+             && (data.coupleId == null
+                 || (data.coupleId is string && data.coupleId.size() <= 128))
+             && data.favoriteEmojis is list
+             && data.favoriteEmojis.size() <= 8
+             && (data.accentColor == null
+                 || (data.accentColor is string
+                     && data.accentColor.size() <= 16))
+             && data.createdAt is timestamp;
+    }
+
+    match /users/{uid} {
+      // Only the owner. A partner reading the other's profile arrives with the
+      // couple model (P2-12) and will be scoped by coupleId, not opened here.
+      allow get: if isOwner(uid);
+
+      // No listing: there is no query the app makes over the collection, and
+      // allowing one would turn users/ into a directory of every account.
+      allow list: if false;
+
+      // A new account starts unpaired, always. coupleId is set only by
+      // P2-09b's transaction, which runs with admin privileges and bypasses
+      // these rules.
+      allow create: if isOwner(uid)
+                    && isWellFormedProfile(request.resource.data)
+                    && request.resource.data.coupleId == null
+                    && request.resource.data.createdAt == request.time;
+
+      // Not a flat field deny: Firestore evaluates the whole resulting
+      // document, so a legitimate displayName edit carries coupleId along with
+      // it. Unchanged is fine; different is rejected — in either direction,
+      // because an unrestricted clear orphans a couple just as surely as an
+      // unrestricted set forges one.
+      allow update: if isOwner(uid)
+                    && isWellFormedProfile(request.resource.data)
+                    && request.resource.data.coupleId == resource.data.coupleId
+                    && request.resource.data.createdAt == resource.data.createdAt;
+
+      // Account deletion is a server-side cascade, never a client dropping its
+      // own row and orphaning everything that points at it.
+      allow delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'package:couple_app/features/auth/widgets/email_auth_sheet.dart';
 import 'package:couple_app/features/pairing/screens/pairing_screen.dart';
 import 'package:couple_app/main.dart';
 
@@ -10,7 +13,8 @@ Future<void> pumpApp(WidgetTester tester) async {
   tester.view.physicalSize = const Size(1170, 2532);
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(const OncelingApp());
+  // main() supplies the scope in the real app; tests pump the widget directly.
+  await tester.pumpWidget(const ProviderScope(child: OncelingApp()));
 }
 
 void main() {
@@ -28,29 +32,26 @@ void main() {
     expect(find.text('No audience. Just us.'), findsOneWidget);
   });
 
-  for (final label in const [
-    'Continue with Apple',
-    'Continue with Google',
-    'Use email or phone',
-  ]) {
-    testWidgets('tapping "$label" opens the pairing screen', (
-      WidgetTester tester,
-    ) async {
-      await pumpApp(tester);
-      expect(find.byType(PairingScreen), findsNothing);
+  testWidgets('"Use email or phone" opens the email sheet, not pairing', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester);
 
-      await tester.tap(find.text(label));
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('Use email or phone'));
+    await tester.pumpAndSettle();
 
-      expect(find.byType(PairingScreen), findsOneWidget);
-      expect(find.text('Find your person'), findsOneWidget);
-    });
-  }
+    expect(find.byType(EmailAuthSheet), findsOneWidget);
+    // Auth gating is P2-14; nothing routes anywhere on sign-in.
+    expect(find.byType(PairingScreen), findsNothing);
+  });
 
   group('pairing screen', () {
     Future<void> openPairing(WidgetTester tester) async {
       await pumpApp(tester);
-      await tester.tap(find.text('Continue with Apple'));
+      // Apple and Google are disabled until P2-19/P2-20, so route directly.
+      tester
+          .state<NavigatorState>(find.byType(Navigator))
+          .pushNamed(PairingScreen.routeName);
       await tester.pumpAndSettle();
     }
 

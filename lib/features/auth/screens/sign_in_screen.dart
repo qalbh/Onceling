@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 
-import '../../../features/pairing/screens/pairing_screen.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
 import '../../../theme/theme_glyphs.dart';
 import '../widgets/auth_buttons.dart';
+import '../widgets/email_auth_sheet.dart';
 import '../widgets/floral_hero.dart';
 
 /// Entry screen: brand mark over the bouquet, sign-in options pinned low.
 ///
-/// The three callbacks are the auth integration points. Until one is supplied,
-/// the matching button goes straight to [PairingScreen], which is where every
-/// sign-in path lands once the real providers are wired up.
+/// Email is the working path. Apple (**P2-20**) and Google (**P2-19**) are not
+/// wired to a provider yet, so their buttons sit disabled rather than doing
+/// something misleading — the UI stays, the behaviour waits.
+///
+/// Nothing here navigates on success: auth-gated routing is **P2-14**.
 class SignInScreen extends StatelessWidget {
   const SignInScreen({
     super.key,
@@ -22,8 +24,13 @@ class SignInScreen extends StatelessWidget {
 
   static const routeName = '/';
 
+  /// Null until **P2-20** wires Apple; the button renders disabled.
   final VoidCallback? onContinueWithApple;
+
+  /// Null until **P2-19** wires Google; the button renders disabled.
   final VoidCallback? onContinueWithGoogle;
+
+  /// Defaults to opening [EmailAuthSheet].
   final VoidCallback? onUseEmailOrPhone;
 
   @override
@@ -62,22 +69,19 @@ class SignInScreen extends StatelessWidget {
                         const SizedBox(height: 24),
                         PrimaryAuthButton(
                           label: 'Continue with Apple',
-                          onPressed:
-                              onContinueWithApple ??
-                              () => _openPairing(context),
+                          onPressed: onContinueWithApple,
                         ),
                         const SizedBox(height: 14),
                         SecondaryAuthButton(
                           label: 'Continue with Google',
-                          onPressed:
-                              onContinueWithGoogle ??
-                              () => _openPairing(context),
+                          onPressed: onContinueWithGoogle,
                         ),
                         const SizedBox(height: 6),
                         UnderlinedTextButton(
                           label: 'Use email or phone',
                           onPressed:
-                              onUseEmailOrPhone ?? () => _openPairing(context),
+                              onUseEmailOrPhone ??
+                              () => EmailAuthSheet.show(context),
                         ),
                         const SizedBox(height: 14),
                         Glyph('❤️', size: context.glyphs.heart),
@@ -100,11 +104,6 @@ class SignInScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Default destination for a sign-in button with no handler wired up yet.
-void _openPairing(BuildContext context) {
-  Navigator.of(context).pushNamed(PairingScreen.routeName);
 }
 
 /// Small sage capsule above the bouquet.

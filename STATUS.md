@@ -2,7 +2,7 @@
 
 **Phase 2 of 4 · Last updated: 2026-07-31**
 
-**Now:** P2-29 — email/password sign-in flow
+**Now:** P2-08 — six-character code generation with a uniqueness lookup document
 
 ---
 
@@ -118,11 +118,18 @@ there is data.
       `kDebugMode` only. `lib/common/providers.dart` has auth, Firestore and
       `authStateProvider` — the couple provider waits for the pairing model.
       iOS deployment target 13.0 → 15.0, required by the Firebase iOS SDK.*
-- [ ] **P2-29** Email/password sign-in and sign-up flow. Wire the existing sign-in
+- [x] **P2-29** Email/password sign-in and sign-up flow. Wire the existing sign-in
       screen to `FirebaseAuth`. Loading, error and empty states on every path.
-      *Precedes P2-08 — nothing else in Phase 2 works without a signed-in user.*
-- [ ] **P2-30** Create `users/{uid}` on first sign-in — `displayName`, `avatarUrl`,
+      *`EmailAuthSheet` behind "Use email or phone"; sign-in and sign-up in one
+      sheet. Apple and Google now render disabled — the UI stays, the providers
+      wait for P2-19/P2-20. Sign-out sits in settings. Nothing navigates on
+      success; auth gating is P2-14. `AuthFailure` carries a human message, never
+      a FirebaseAuthException code.*
+- [x] **P2-30** Create `users/{uid}` on first sign-in — `displayName`, `avatarUrl`,
       `coupleId: null`, `favoriteEmojis`, `accentColor` (brief §9).
+      *Check-then-create, so signing in again never clobbers. `currentUserProvider`
+      streams the document off `authStateProvider`. Rules for `users/{uid}` shipped
+      in the same change; auditor scored 4.*
       *Client write, protected by rules — not an Auth trigger. The rule preventing a
       user from setting their own `coupleId` is required either way, since P2-09b's
       transaction is the only thing allowed to set it. Once that rule exists the
@@ -211,6 +218,14 @@ there is data.
       timezone-independent — 7 days is 7 days — so this is **not** blocked by Q3 or by
       **P3-02**. It can share **P3-02**'s schedule if convenient, but does not require
       one.
+- [ ] **P2-31** Validate `favoriteEmojis` element contents. The rule bounds the list
+      to 8 entries but Firestore rules have no per-element expression — a 200KB string
+      in one entry was accepted under probe. Self-scoped and capped by the 1MiB
+      document limit, so it only damages the writer's own row. Mitigate in the client
+      and in a Function. *Auditor minor, P2-29.*
+- [ ] **P2-32** Email verification flow. `firestore.rules` deliberately does not
+      require `email_verified` — there is no verification flow, so requiring it would
+      break sign-up. Revisit before **P2-19** and **P2-20**. *Auditor minor, P2-29.*
 
 ---
 
@@ -261,6 +276,9 @@ Non-blocking. Fix when convenient.
       constraint before the codebase gets large.
 - [ ] **D-08** `@firebase/app` pinned in `functions/` to work around a broken peer
       dependency in `firebase-admin@13.6.0`. Recheck on the next upgrade.
+- [ ] **D-09** `rules-tests/` carries its own Node toolchain (86 packages).
+      `@firebase/rules-unit-testing` peer-requires `firebase@^11`, not 12. Working,
+      but the mismatch will surface on upgrade.
 
 ---
 

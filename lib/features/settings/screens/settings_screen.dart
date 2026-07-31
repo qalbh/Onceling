@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../common/app_toast.dart';
+import '../../../common/providers.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
 import '../../../theme/theme_glyphs.dart';
@@ -11,7 +13,7 @@ import '../../feed/widgets/reaction_tray.dart';
 import '../widgets/settings_rows.dart';
 import '../widgets/unpair_sheet.dart';
 
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({
     super.key,
     this.viewerId = mayaUid,
@@ -28,10 +30,10 @@ class SettingsScreen extends StatefulWidget {
   final int streak;
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final List<String> _favourites = List.of(
     widget.viewerId == mayaUid ? mayaTrayEmoji : devonTrayEmoji,
   );
@@ -46,6 +48,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final picked = await ReactionTray.show(context, title: 'Pick a favourite');
     if (picked == null || !mounted) return;
     setState(() => _favourites[index] = picked);
+  }
+
+  Future<void> _signOut() async {
+    // Nothing to navigate to — the auth gate is **P2-14**. Signing out simply
+    // ends the session; the screen stays where it is.
+    await ref.read(authServiceProvider).signOut();
+    if (mounted) showAppToast(context, 'Signed out');
   }
 
   Future<void> _unpair() async {
@@ -104,6 +113,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       setState(() => _screenshotAlerts = !_screenshotAlerts),
                 ),
               ],
+            ),
+            const SizedBox(height: 26),
+            SettingsCard(
+              children: [SettingsRow(label: 'Sign out', onTap: _signOut)],
             ),
             const SizedBox(height: 26),
             SettingsCard(

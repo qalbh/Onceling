@@ -2,6 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../features/auth/auth_service.dart';
+import '../features/auth/models/user_profile.dart';
+
 /// Riverpod roots for the Firebase SDKs.
 ///
 /// Deliberately plain declarations — no `@riverpod`, no `build_runner`. Reading
@@ -25,3 +28,31 @@ final firestoreProvider = Provider<FirebaseFirestore>(
 final authStateProvider = StreamProvider<User?>(
   (ref) => ref.watch(firebaseAuthProvider).authStateChanges(),
 );
+
+/// Email/password operations and first-sign-in profile creation.
+final authServiceProvider = Provider<AuthService>(
+  (ref) => FirebaseAuthService(
+    ref.watch(firebaseAuthProvider),
+    ref.watch(firestoreProvider),
+  ),
+);
+
+/// The signed-in user's `users/{uid}` document, following [authStateProvider].
+///
+/// Emits null when signed out, and null in the gap between the account existing
+/// and its document being written. Anything downstream must handle both.
+final currentUserProvider = StreamProvider<UserProfile?>((ref) {
+  final user = ref.watch(authStateProvider).valueOrNull;
+  if (user == null) return Stream<UserProfile?>.value(null);
+
+  return ref
+      .watch(firestoreProvider)
+      .collection('users')
+      .doc(user.uid)
+      .snapshots()
+      .map(
+        (snapshot) => snapshot.exists
+            ? UserProfile.fromFirestore(snapshot.id, snapshot.data()!)
+            : null,
+      );
+});

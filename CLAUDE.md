@@ -12,7 +12,11 @@ with one, say so instead of silently working around it.
 A change is not complete until all five hold:
 
 1. `flutter analyze` is clean
-2. `flutter test` passes
+2. `flutter test` passes, **and the test count is stated with its delta.** A green
+   suite proves nothing if you do not check which tests ran. During P2-29 a file
+   landed on disk as `" .dart"` — a literal space plus extension — so 8 tests were
+   silently skipped and the suite still reported green. If the count does not match
+   arithmetic, investigate before proceeding.
 3. `dart format lib test` produces no diff
 4. New behaviour has a test (see Testing)
 5. The relevant box in `STATUS.md` is ticked, in this same change
@@ -235,6 +239,8 @@ redirect (**P2-14**). Handle gating in one place, never per-screen.
 - Set `tester.view.physicalSize` with `addTearDown(tester.view.reset)` when device
   size matters.
 - Do not write golden tests test-first; generate the golden from verified output.
+- Security Rules tests live in `rules-tests/` and run with `npm test` in that
+  directory, not under `flutter test`. Both must pass. When CI exists, it runs both.
 
 ## Code conventions
 
