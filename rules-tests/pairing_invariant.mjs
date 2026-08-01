@@ -34,6 +34,35 @@ export async function assertPairingInvariant(readAll, label) {
   }
 
   for (const couple of couples) {
+    // A couple in `status: 'unpaired'` is P2-36 phase 1 complete and phase 2
+    // not yet run: separation is atomic, deletion is a trigger that fires a
+    // moment later. In that window the document legitimately lists two members
+    // who no longer point back at it, which is not a broken invariant — it is
+    // the two-phase design working.
+    //
+    // **This is D-14.** The intermittent one-off failure in this suite was a
+    // race against `sweepUnpairedCouple`: if the sweep won, the couple was
+    // gone and the check passed; if the test won, the check saw the
+    // transitional state and failed. Same code, different outcome, which is
+    // exactly how it presented. The transitional state still gets asserted —
+    // skipping it outright would trade a flake for a blind spot.
+    if (couple.status === 'unpaired') {
+      for (const member of couple.memberIds ?? []) {
+        const user = users.find((u) => u.id === member);
+        // The point of unpair is that BOTH sides are freed together. One
+        // cleared and one still bound is the orphan the transaction exists to
+        // prevent, and it must fail here even mid-sweep.
+        if (user != null) {
+          assert.equal(
+            user.coupleId,
+            null,
+            `${label}: couple ${couple.id} is unpaired but ${member} still has coupleId ${user.coupleId}`,
+          );
+        }
+      }
+      continue;
+    }
+
     assert.ok(
       Array.isArray(couple.memberIds) && couple.memberIds.length === 2,
       `${label}: couple ${couple.id} has memberIds ${JSON.stringify(couple.memberIds)} — a couple is exactly two people`,
