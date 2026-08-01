@@ -18,10 +18,27 @@ class FakeUser implements User {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
-UserProfile fakeProfile({String? coupleId, String? pairingCode}) => UserProfile(
-  uid: 'uid-test',
-  displayName: 'Maya',
-  favoriteEmojis: const ['❤️'],
+UserProfile fakeProfile({
+  String uid = 'uid-test',
+  String displayName = 'Maya',
+  String? coupleId,
+  String? pairingCode,
+  // The eight ensureUserProfile writes, so tray-driven tests exercise the
+  // real shape rather than a one-emoji stub.
+  List<String> favoriteEmojis = const [
+    '❤️',
+    '😂',
+    '🥹',
+    '🔥',
+    '🫶',
+    '🌙',
+    '🧋',
+    '🐈',
+  ],
+}) => UserProfile(
+  uid: uid,
+  displayName: displayName,
+  favoriteEmojis: favoriteEmojis,
   coupleId: coupleId,
   pairingCode: pairingCode,
 );
@@ -103,18 +120,21 @@ PairingRequest fakeRequest({
 );
 
 /// A couple carrying denormalised member names (**M-02**).
+/// [uid] is the signed-in member, so membership follows whoever the test is.
 Couple fakeCouple({
   String id = 'couple-1',
-  Map<String, String>? memberNames = const {
-    'uid-test': 'Maya',
-    'uid-partner': 'Devon',
-  },
+  String uid = 'uid-test',
+  String partnerUid = 'uid-partner',
+  String myName = 'Maya',
+  String partnerName = 'Devon',
+  bool withNames = true,
   String? coupleName,
 }) => Couple(
   id: id,
-  memberIds: const ['uid-test', 'uid-partner'],
-  // Null models a couple formed before M-02 — no migration by design.
-  memberNames: memberNames ?? const {},
+  memberIds: [uid, partnerUid],
+  // withNames: false models a couple formed before M-02 — no migration by
+  // design, so the client must degrade rather than blank.
+  memberNames: withNames ? {uid: myName, partnerUid: partnerName} : const {},
   coupleName: coupleName,
 );
 
@@ -143,20 +163,25 @@ List<Override> pairingStreamOverrides({
 /// [pairingCode] defaults to a claimed code so the pairing screen does not
 /// fire `ensurePairingCode` during unrelated tests.
 List<Override> signedInOverrides({
+  String uid = 'uid-test',
+  String displayName = 'Maya',
   String? coupleId,
   String? pairingCode = 'MK4Q7B',
   PairingService? pairing,
   List<PairingRequest> incoming = const [],
   PairingRequest? outgoing,
-  Map<String, String>? memberNames = const {
-    'uid-test': 'Maya',
-    'uid-partner': 'Devon',
-  },
+  bool withNames = true,
 }) => [
   authStateProvider.overrideWith((ref) => Stream.value(FakeUser())),
   currentUserProvider.overrideWith(
-    (ref) =>
-        Stream.value(fakeProfile(coupleId: coupleId, pairingCode: pairingCode)),
+    (ref) => Stream.value(
+      fakeProfile(
+        uid: uid,
+        displayName: displayName,
+        coupleId: coupleId,
+        pairingCode: pairingCode,
+      ),
+    ),
   ),
   pairingServiceProvider.overrideWithValue(pairing ?? FakePairingService()),
   ...pairingStreamOverrides(
@@ -164,7 +189,15 @@ List<Override> signedInOverrides({
     outgoing: outgoing,
     couple: coupleId == null
         ? null
-        : fakeCouple(id: coupleId, memberNames: memberNames),
+        : fakeCouple(
+            id: coupleId,
+            uid: uid,
+            myName: displayName,
+            // The other half of the mock pair, so the title reads sensibly
+            // whichever of the two the test is signed in as.
+            partnerName: displayName == 'Devon' ? 'Maya' : 'Devon',
+            withNames: withNames,
+          ),
   ),
 ];
 

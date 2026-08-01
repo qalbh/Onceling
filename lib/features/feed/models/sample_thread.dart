@@ -76,6 +76,10 @@ const sampleSecretBodies = <String, String>{
 };
 
 /// Quick-reaction emoji in the bottom tray. Each person keeps their own set.
+/// Fallback tray, used only before a profile resolves. Real trays come from
+/// `favoriteEmojis` on the reader's own profile.
+const defaultTrayEmoji = ['❤️', '😂', '🥹', '🔥', '🫶', '🌙', '🧋', '🐈'];
+
 const mayaTrayEmoji = ['❤️', '😂', '🥹', '🔥', '🫶', '🌙', '🧋', '🐈'];
 const devonTrayEmoji = ['❤️', '😂', '🥹', '🔥', '🫶', '🎈', '🍜', '💤'];
 

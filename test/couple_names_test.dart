@@ -42,7 +42,7 @@ void main() {
     () async {
       // Every couple formed before M-02, including both simulator accounts.
       final c = containerWith(
-        signedInOverrides(coupleId: 'couple-1', memberNames: null),
+        signedInOverrides(coupleId: 'couple-1', withNames: false),
       );
       await settle(c);
 

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,8 @@ import 'package:couple_app/theme/app_theme.dart';
 
 import 'test_doubles.dart';
 
+/// [viewerId] is who the test is *signed in as* — the feed has no viewer
+/// parameter any more, because the signed-in user is always the viewer.
 Future<void> pumpFeed(WidgetTester tester, {String viewerId = devonUid}) async {
   tester.view.physicalSize = const Size(1170, 2532);
   tester.view.devicePixelRatio = 3.0;
@@ -28,8 +31,7 @@ Future<void> pumpFeed(WidgetTester tester, {String viewerId = devonUid}) async {
         path: AppRoutes.feed,
         // Key by viewer so re-pumping in one test builds fresh state rather
         // than reusing the previous FeedScreen's.
-        builder: (_, _) =>
-            FeedScreen(key: ValueKey(viewerId), viewerId: viewerId),
+        builder: (_, _) => FeedScreen(key: ValueKey(viewerId)),
       ),
       GoRoute(
         path: AppRoutes.settings,
@@ -56,10 +58,22 @@ Future<void> pumpFeed(WidgetTester tester, {String viewerId = devonUid}) async {
   );
   addTearDown(router.dispose);
 
+  // Tear the previous tree down first. Re-pumping a ProviderScope with new
+  // overrides updates them, but a StreamProvider keeps its existing
+  // subscription — so a second pumpFeed in one test would keep the first
+  // viewer's identity.
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.pump();
+
   await tester.pumpWidget(
     ProviderScope(
       // M-02: the feed resolves names through providers now.
-      overrides: signedInOverrides(coupleId: 'couple-1'),
+      overrides: signedInOverrides(
+        uid: viewerId,
+        // The mock thread's two people, so a test signed in as Devon is Devon.
+        displayName: viewerId == devonUid ? 'Devon' : 'Maya',
+        coupleId: 'couple-1',
+      ),
       child: MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
     ),
   );
@@ -95,7 +109,8 @@ void main() {
   ) async {
     await pumpFeed(tester);
 
-    expect(find.text('Maya & Devon'), findsOneWidget);
+    // Title is '<me> & <partner>', and this test is signed in as Devon.
+    expect(find.text('Devon & Maya'), findsOneWidget);
     expect(find.text('994 days · since 4 November 2023'), findsOneWidget);
     expect(find.text('47'), findsOneWidget);
     expect(find.text('Exhibit A.'), findsOneWidget);
@@ -187,13 +202,14 @@ void main() {
   testWidgets('tapping a tray emoji appends it to the thread', (tester) async {
     await pumpFeed(tester);
 
-    expect(find.text('🎈'), findsOneWidget); // only in the tray
+    // The tray is the reader's own favoriteEmojis now, not a per-mock-uid set.
+    expect(find.text('🧋'), findsOneWidget); // only in the tray
 
-    await tester.tap(find.text('🎈'));
+    await tester.tap(find.text('🧋'));
     await tester.pump();
 
     // Now in the tray and in the thread.
-    expect(find.text('🎈'), findsNWidgets(2));
+    expect(find.text('🧋'), findsNWidgets(2));
     await tester.pumpAndSettle(const Duration(seconds: 3));
   });
 
@@ -253,11 +269,26 @@ void main() {
     expect(find.text('😮'), findsOneWidget); // now a reaction chip
   });
 
-  testWidgets('swapping the viewer mirrors the thread', (tester) async {
-    await pumpFeed(tester);
+  testWidgets('renders as the signed-in user, whoever that is', (tester) async {
+    // Signed in as the recipient: the secret is locked.
+    await pumpFeed(tester, viewerId: devonUid);
+    expect(find.text('A secret from Maya'), findsOneWidget);
     expect(find.text('Secret sent'), findsNothing);
 
-    // Tapping the avatar opens settings, so the swap is on long-press.
+    // Signed in as the sender: the same thread mirrors, with no gesture.
+    await pumpFeed(tester, viewerId: mayaUid);
+    expect(find.text('Secret sent'), findsOneWidget);
+    expect(find.text('A secret from Maya'), findsNothing);
+  });
+
+  testWidgets('long-pressing the header avatar changes no identity', (
+    tester,
+  ) async {
+    // The swap was a Phase 1 dev affordance from before auth existed. It let a
+    // real user become their partner, so it is gone. This fails if it returns.
+    await pumpFeed(tester, viewerId: devonUid);
+    expect(find.text('A secret from Maya'), findsOneWidget);
+
     await tester.longPress(
       find.descendant(
         of: find.byType(FeedHeader),
@@ -266,7 +297,25 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Secret sent'), findsOneWidget);
+    // With no long-press recognizer left, the gesture falls through to the tap
+    // and opens settings — the ordinary behaviour, and not an identity change.
+    if (find.byType(SettingsScreen).evaluate().isNotEmpty) {
+      GoRouter.of(tester.element(find.byType(SettingsScreen))).pop();
+      await tester.pumpAndSettle();
+    }
+
+    // Back on the thread, still the recipient's view: nothing mirrored.
+    expect(find.text('A secret from Maya'), findsOneWidget);
+    expect(find.text('Secret sent'), findsNothing);
+  });
+
+  test('the header exposes no viewer-swap hook at all', () {
+    // Structural: a behavioural test cannot prove the callback is absent, and
+    // re-adding the parameter is how the affordance would come back.
+    final source = File(
+      'lib/features/feed/widgets/feed_header.dart',
+    ).readAsStringSync();
+    expect(source.contains('onSwapViewer'), isFalse);
   });
 
   testWidgets('tapping the avatar opens settings', (tester) async {
@@ -281,18 +330,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Settings'), findsOneWidget);
-    // The settings route no longer inherits the feed's viewer: it builds with
-    // the default mock viewer (Maya) until real auth wiring lands (M-02).
-    expect(find.text('paired with Devon'), findsOneWidget);
+    // Settings shows the same signed-in identity the feed does — since M-02
+    // neither takes a viewer, both read it from the profile.
+    // Signed in as Devon, so the partner is Maya.
+    expect(find.text('paired with Maya'), findsOneWidget);
     expect(find.text('Couple name'), findsOneWidget);
 
     // The rest of the page is below the fold in a lazy list.
     await tester.scrollUntilVisible(
-      find.text('Unpair from Devon'),
+      find.text('Unpair from Maya'),
       240,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('Unpair from Devon'), findsOneWidget);
+    expect(find.text('Unpair from Maya'), findsOneWidget);
   });
 
   testWidgets('setting a mood updates the status line', (tester) async {

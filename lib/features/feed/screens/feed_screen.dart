@@ -9,6 +9,7 @@ import '../../compose/compose_sheet.dart';
 import '../../mood/mood_sheet.dart';
 import '../../secret/screens/secret_reveal_screen.dart';
 import '../../secret/widgets/secret_opened_dialog.dart';
+import '../../../common/providers.dart';
 import '../../pairing/couple_names.dart';
 import '../models/feed_item.dart';
 import '../models/sample_thread.dart';
@@ -18,14 +19,14 @@ import '../widgets/feed_header.dart';
 import '../widgets/feed_item_view.dart';
 import '../widgets/reaction_tray.dart';
 
-/// The shared thread. Rendered from [viewerId]'s side — tapping the header
-/// avatar swaps perspective, which is how the sender and recipient layouts in
-/// the mocks are both reachable without two accounts.
+/// The shared thread, rendered from the signed-in user's side.
+///
+/// The viewer is whoever is signed in — never a parameter, never local state.
+/// A long-press used to swap perspective, which was how both mock layouts were
+/// reachable before auth existed; it let a real user become their partner, so
+/// it is gone. Seeing the other side now requires being the other person.
 class FeedScreen extends ConsumerStatefulWidget {
-  const FeedScreen({super.key, this.viewerId = devonUid});
-
-  /// uid of the signed-in reader. Comes from the auth provider at **P2-07**.
-  final String viewerId;
+  const FeedScreen({super.key});
 
   @override
   ConsumerState<FeedScreen> createState() => _FeedScreenState();
@@ -35,7 +36,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   final _burstKey = GlobalKey<EmojiBurstLayerState>();
   final _scrollController = ScrollController();
 
-  late String _viewerId = widget.viewerId;
+  /// The signed-in reader. Empty only in the instant before the profile
+  /// stream resolves, which the gate normally prevents from being visible.
+  String get _viewerId => ref.read(currentUserProvider).valueOrNull?.uid ?? '';
+
   late List<FeedItem> _items = sampleThread();
 
   /// Stands in for the `secretBodies` collection until **P3-01**.
@@ -224,6 +228,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Watched, not read: the viewer and their favourites both come from it.
+    final profile = ref.watch(currentUserProvider).valueOrNull;
     return Scaffold(
       backgroundColor: context.palette.feedBackground,
       body: Stack(
@@ -240,8 +246,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                     _viewerId,
                   ),
                   onOpenSettings: () => context.push(AppRoutes.settings),
-                  onSwapViewer: () =>
-                      setState(() => _viewerId = mockPartnerOf(_viewerId)),
                 ),
               ),
               Expanded(
@@ -261,7 +265,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
               SafeArea(
                 top: false,
                 child: EmojiTray(
-                  emoji: _viewerId == mayaUid ? mayaTrayEmoji : devonTrayEmoji,
+                  // The reader's own favourites, from their profile — this
+                  // used to be picked by mock uid. `favoriteEmojis` is written
+                  // with eight defaults by ensureUserProfile, so the fallback
+                  // is only for the pre-resolve instant.
+                  emoji: profile?.favoriteEmojis.isNotEmpty == true
+                      ? profile!.favoriteEmojis
+                      : defaultTrayEmoji,
                   onCompose: _compose,
                   onEmoji: _sendEmoji,
                 ),

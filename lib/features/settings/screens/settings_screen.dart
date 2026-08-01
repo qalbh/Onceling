@@ -17,12 +17,10 @@ import '../widgets/unpair_sheet.dart';
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({
     super.key,
-    this.viewerId = mayaUid,
     this.anniversary = '4 November 2023',
     this.streak = 47,
   });
 
-  final String viewerId;
   final String anniversary;
   final int streak;
 
@@ -31,9 +29,17 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  late final List<String> _favourites = List.of(
-    widget.viewerId == mayaUid ? mayaTrayEmoji : devonTrayEmoji,
-  );
+  /// The reader's own favourites, seeded from their profile.
+  ///
+  /// This used to be chosen by comparing a mock uid, which showed one fixed
+  /// person's set to everyone. Editing them is still local-only — persisting
+  /// a change back to `favoriteEmojis` is not built yet.
+  List<String>? _favourites;
+
+  List<String> get _favouriteEmoji =>
+      _favourites ??
+      ref.watch(currentUserProvider).valueOrNull?.favoriteEmojis ??
+      defaultTrayEmoji;
 
   bool _secretAlerts = true;
   bool _screenshotAlerts = true;
@@ -42,7 +48,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _swapFavourite(int index) async {
     final picked = await ReactionTray.show(context, title: 'Pick a favourite');
     if (picked == null || !mounted) return;
-    setState(() => _favourites[index] = picked);
+    setState(() {
+      final next = List.of(_favouriteEmoji);
+      next[index] = picked;
+      _favourites = next;
+    });
   }
 
   Future<void> _signOut() async {
@@ -174,7 +184,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       spacing: 18,
       children: [
         PersonAvatar(
-          initial: ref.watch(memberInitialResolverProvider)(widget.viewerId),
+          initial: ref.watch(myNameProvider).characters.first.toUpperCase(),
           size: 78,
         ),
         Flexible(
@@ -216,7 +226,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: Row(
               spacing: 8,
               children: [
-                for (var i = 0; i < _favourites.length; i++)
+                for (var i = 0; i < _favouriteEmoji.length; i++)
                   GestureDetector(
                     onTap: () => _swapFavourite(i),
                     child: Container(
@@ -228,7 +238,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         shape: BoxShape.circle,
                       ),
                       child: Glyph(
-                        _favourites[i],
+                        _favouriteEmoji[i],
                         size: context.glyphs.favouriteSlot,
                       ),
                     ),

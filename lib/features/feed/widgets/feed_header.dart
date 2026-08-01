@@ -45,7 +45,6 @@ class FeedHeader extends StatelessWidget {
     required this.streak,
     required this.viewerInitial,
     this.onOpenSettings,
-    this.onSwapViewer,
   });
 
   final String title;
@@ -58,7 +57,6 @@ class FeedHeader extends StatelessWidget {
 
   /// Demo affordance on long-press: swaps which side of the pair is reading,
   /// so both the sender and recipient layouts are reachable on one device.
-  final VoidCallback? onSwapViewer;
 
   @override
   Widget build(BuildContext context) {
@@ -89,7 +87,6 @@ class FeedHeader extends StatelessWidget {
           const SizedBox(width: 12),
           GestureDetector(
             onTap: onOpenSettings,
-            onLongPress: onSwapViewer,
             child: PersonAvatar(initial: viewerInitial),
           ),
         ],
