@@ -16,6 +16,13 @@ abstract interface class PairingService {
   /// Withdraws a pending request the caller sent (P2-24's Cancel).
   Future<void> cancelPairingRequest(String requestId);
 
+  /// Separates the caller from their partner (**P2-36**).
+  ///
+  /// Phase 1 only: when this returns, both users are separated. Destroying the
+  /// couple's data is a background sweep triggered by the status this writes.
+  /// Idempotent — calling it while already unpaired succeeds.
+  Future<void> unpair();
+
   /// Accepts or declines a request addressed to the caller (**P2-09b**).
   ///
   /// Accepting returns the new couple's id. Declining returns null — and
@@ -48,6 +55,11 @@ class FirebaseFunctionsPairingService implements PairingService {
     await _functions.httpsCallable('cancelPairingRequest').call({
       'requestId': requestId,
     });
+  }
+
+  @override
+  Future<void> unpair() async {
+    await _functions.httpsCallable('unpair').call();
   }
 
   @override

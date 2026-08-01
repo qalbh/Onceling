@@ -51,6 +51,8 @@ until Q1, Q2 and Q3 are answered.
 - [ ] **Q3** One couple timezone, or per-device? *Blocks the streak Function.*
 - [ ] **Q4** Any monetisation intent? *Decides whether trademark checks matter.*
 - [ ] **Q5** Export on unpair, or destroy? *Unpair copy promises total erasure.*
+      *Owner decided: **destroy, no export**. Implemented in **P2-36**'s sweep.
+      Left unticked — decisions belong to the owner, per the rules at the top.*
 
 ---
 
@@ -216,6 +218,12 @@ there is data.
       their own `displayName` while `coupleId` is present and unchanged must succeed.
       Without it, an over-strict rule passes the negative tests and breaks the app.
 - [ ] **P2-12** Feed persistence with a real-time listener and pagination
+      **Must write `coupleId` onto `secretBodies` documents.** Bodies are keyed by item
+      id, so items are the only handle on them. **P3-01** deletes bodies while keeping
+      items, and **P2-36**'s sweep deletes items — either direction can orphan the
+      other. The sweep now has a second pass by `coupleId`, which only works if the
+      field is there. Without it, "destroy everything" means "destroy what we can still
+      find", and brief §10's promise is not true.
 - [ ] **P2-13** Photo upload to Cloud Storage. *Enable the Storage emulator first —
       until it is on, Functions calls to Cloud Storage hit the real dev bucket.*
 - [x] **P2-14** Migrate named routes → `go_router` with a single auth redirect
@@ -361,13 +369,52 @@ there is data.
       *No index needed: a single `array-contains` filter with no other filter or
       `orderBy` uses the automatic single-field index. `firestore.indexes.json` is
       untouched.*
-- [ ] **P2-36** Unpair. The settings screen has an unpair sheet with typed
+- [x] **P2-36** Unpair. The settings screen has an unpair sheet with typed
       confirmation (Phase 1 UI), but nothing behind it. A paired user currently cannot
       separate. Needs a callable that clears `coupleId` on both users server-side —
       per CLAUDE.md, an unrestricted clear is as dangerous as an unrestricted set,
       because it orphans a couple. Must be atomic and idempotent, and must decide what
-      happens to `couples/{id}`, `items`, and `secretBodies`. Blocked on **Q5**
-      (export or destroy).
+      happens to `couples/{id}`, `items`, and `secretBodies`. **Q5** answered: destroy.
+      *Two phases, and the split is the point. **Phase 1** (`unpair` callable) is one
+      transaction: clears `coupleId` on both users and stamps the couple
+      `status: 'unpaired'`. When it returns, both people are separated — that is the
+      guarantee. **Phase 2** is a sweep that only has to be reliable. Doing both in one
+      callable would risk a timeout on a couple with real history, and a partial delete
+      leaves the orphans `assertPairingInvariant` exists to catch.*
+      *Phase 2 is an `onDocumentUpdated` trigger on `couples/{id}`, guarded to the
+      transition into `'unpaired'` so phase 1's resume path cannot start a second
+      sweep, with `retry: true`. A trigger rather than a schedule because the work is
+      caused by exactly one state change and someone who just asked for erasure should
+      not wait for a cron tick; the couple document doubles as the work queue, and its
+      deletion is the completion marker.*
+      *Deletion order: each item **with its secret body in the same batch**, then any
+      remaining bodies by `coupleId`, then the couple document last. Items and bodies
+      go together rather than all-bodies-then-all-items — bodies are keyed by item id,
+      so the phased order opens a window where an item is gone and its body is
+      unreachable. The couple goes last because it is the only handle on the data.*
+      *Found while testing: a body whose item was already deleted is unreachable
+      forever. **`secretBodies` must carry `coupleId`, and P2-12 must write it** — the
+      second pass depends on it. Without that, "destroy" means "destroy what we can
+      still find".*
+      *No rules change: `couples` already denies all client writes and `items` /
+      `secretBodies` fall to the catch-all deny. Confirmed with seven probes rather
+      than assumed, so no auditor run.*
+- [ ] **P2-38** Backstop sweep for couples stuck at `status: 'unpaired'`. **P2-36**'s
+      trigger retries, but a sweep that exhausts its retries leaves a couple marked
+      unpaired forever with nobody looking, and its data undeleted — which the unpair
+      copy promises is gone. A scheduled pass over that state closes it; it can share
+      **P2-28**'s schedule.
+- [ ] **P2-37** Black screen on sign-out, unreproduced. Observed once on the 16e after
+      a paired sign-in, an attempted unpair, and sign-out. Two hypotheses disproven
+      with device traces: the celebration detector never arms on sign-out (`_observe`
+      returns early on a null profile), and the `_unpair()` `context.go` race does not
+      produce it at 0 ms or 2500 ms gaps. No exception was captured — the `flutter run`
+      for that device had been killed, so nothing held stderr.
+      *Note: the device was running an instrumented build at the time, later found to
+      have survived a source-level revert. That build's auto-submit hook may be
+      implicated. If it does not recur on clean builds, close this as not-a-defect.*
+      *If it recurs, the thing that would settle it is a `flutter run` attached to the
+      device at the time. Do not chase further without a new occurrence.*
 - [ ] **P2-31** Validate `favoriteEmojis` element contents. The rule bounds the list
       to 8 entries but Firestore rules have no per-element expression — a 200KB string
       in one entry was accepted under probe. Self-scoped and capped by the 1MiB

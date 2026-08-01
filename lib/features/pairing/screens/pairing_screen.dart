@@ -8,6 +8,7 @@ import '../../../common/app_toast.dart';
 import '../../../common/providers.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
+import '../models/pairing_request.dart';
 import '../widgets/code_tiles.dart';
 import '../widgets/incoming_request_card.dart';
 import '../widgets/partner_code_field.dart';
@@ -171,7 +172,19 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         !request.isPending &&
         request.id == _dismissedRequestId;
 
-    if (request == null || settled) return _entryForm(theme);
+    // An accepted request on THIS screen belongs to a couple that no longer
+    // exists — being here at all means `coupleId` is null. After an unpair
+    // (**P2-36**) the most recent outgoing request stays 'accepted' forever,
+    // and rendering its card left the user stuck on "Paired / Opening your
+    // space…" with no code and no way to enter one. Seen on device.
+    //
+    // Falling through to the entry form is also right in the brief window
+    // just after accepting, before `coupleId` arrives: the form shows for an
+    // instant and the gate then moves them on.
+    final staleAccept =
+        request != null && request.status == PairingRequestStatus.accepted;
+
+    if (request == null || settled || staleAccept) return _entryForm(theme);
 
     return [
       WaitingCard(

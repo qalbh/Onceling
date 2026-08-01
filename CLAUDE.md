@@ -228,6 +228,14 @@ Projects `qalb-coupleapp-dev` and `qalb-coupleapp-prod`. IDs are permanent.
   Report each device ID, the model, and which account (if any) each is signed in as.
   If only one simulator is booted, say so rather than silently installing on one.
 
+- **Never run two `flutter run` processes concurrently from the same project
+  directory**, especially with differing `--dart-define` values. They race on the
+  shared build output and the second reuses the first's kernel — both devices end up
+  running the same build. This invalidated a device verification silently: two
+  simulators both ran the same account's instrumented binary. Install sequentially,
+  and if the builds differ in any way, verify the artifact on each device before
+  drawing conclusions.
+
 - Temporary instrumentation is not reverted until a clean build is installed on every
   booted simulator **and the artifact is checked**. `--dart-define` values compile
   into the binary and leave no trace in the repo, so grepping the source tree proves
@@ -293,6 +301,11 @@ redirect (**P2-14**). Handle gating in one place, never per-screen.
 - Do not write golden tests test-first; generate the golden from verified output.
 - Security Rules tests live in `rules-tests/` and run with `npm test` in that
   directory, not under `flutter test`. Both must pass. When CI exists, it runs both.
+- A device walkthrough run after the Node suites is testing a wiped database. Re-seed
+  and re-establish any pairing the walkthrough needs, then confirm the state before
+  drawing conclusions — a run that signs in as an unpaired user when you meant a
+  paired one looks like it worked. This has silently invalidated a device test more
+  than once.
 - Rules tests run in parallel under `node --test`. Each test file needs its own
   emulator project namespace; sharing one means `clearFirestore()` in one file wipes
   another mid-run. Two rule bugs during P2-09 were this, not the rules.

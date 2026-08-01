@@ -5,7 +5,9 @@
   "description": "Firestore Security Rules unit tests (P2-11) and Functions tests for the pairing callables. Both run against the emulator suite.",
   "scripts": {
     "test": "node --test users.test.mjs pairing_rules.test.mjs",
-    "test:functions": "node --test --test-concurrency=1 pairing_functions.test.mjs pairing_concurrency.test.mjs"
+    "test:functions": "node --test --test-concurrency=1 pairing_functions.test.mjs pairing_concurrency.test.mjs",
+    "pretest": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node truncate-logs.mjs",
+    "pretest:functions": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node truncate-logs.mjs"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",

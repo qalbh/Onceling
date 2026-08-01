@@ -7,6 +7,7 @@ import 'package:couple_app/common/app_router.dart';
 import 'package:couple_app/features/auth/screens/sign_in_screen.dart';
 import 'package:couple_app/features/pairing/screens/pairing_screen.dart';
 import 'package:couple_app/features/settings/screens/settings_screen.dart';
+import 'package:couple_app/features/settings/widgets/unpair_sheet.dart';
 import 'package:couple_app/main.dart';
 
 import 'test_doubles.dart';
@@ -126,6 +127,41 @@ void main() {
     // Still on settings, still paired.
     expect(find.byType(SettingsScreen), findsOneWidget);
     expect(find.text('Unpair from Devon'), findsOneWidget);
+  });
+
+  testWidgets('confirming unpair calls the callable', (tester) async {
+    final pairing = FakePairingService();
+    await pumpSettings(tester, overrides: signedInOverrides(pairing: pairing));
+
+    await tapRow(tester, 'Unpair from Devon');
+    await tester.enterText(find.byType(TextField), 'UNPAIR');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unpair'));
+    await tester.pumpAndSettle();
+
+    expect(pairing.calls, contains('unpair'));
+  });
+
+  testWidgets('a failed unpair keeps the sheet open with its error', (
+    tester,
+  ) async {
+    await pumpSettings(
+      tester,
+      overrides: signedInOverrides(
+        pairing: FakePairingService(unpairError: Exception('offline')),
+      ),
+    );
+
+    await tapRow(tester, 'Unpair from Devon');
+    await tester.enterText(find.byType(TextField), 'UNPAIR');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unpair'));
+    await tester.pumpAndSettle();
+
+    // Nothing navigated, so the sheet is still the user's context.
+    expect(find.byKey(const Key('unpair-error')), findsOneWidget);
+    expect(find.byType(UnpairSheet), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('confirming unpair does not navigate — the gate owns that', (

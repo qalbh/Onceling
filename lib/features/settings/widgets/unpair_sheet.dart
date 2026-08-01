@@ -1,12 +1,16 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../common/providers.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
 
 /// Typed confirmation before erasing the pair. Deliberately awkward: the word
 /// must be typed exactly before the destructive button becomes live.
-class UnpairSheet extends StatefulWidget {
+class UnpairSheet extends ConsumerStatefulWidget {
   const UnpairSheet({
     super.key,
     required this.partnerName,
@@ -32,11 +36,42 @@ class UnpairSheet extends StatefulWidget {
   }
 
   @override
-  State<UnpairSheet> createState() => _UnpairSheetState();
+  ConsumerState<UnpairSheet> createState() => _UnpairSheetState();
 }
 
-class _UnpairSheetState extends State<UnpairSheet> {
+class _UnpairSheetState extends ConsumerState<UnpairSheet> {
   static const _phrase = 'UNPAIR';
+
+  bool _busy = false;
+  String? _error;
+
+  /// Calls **P2-36** phase 1 and reports the outcome here.
+  ///
+  /// Popping on success is safe, unlike the auth sheet: clearing `coupleId`
+  /// makes the gate want `/pairing`, and `/settings` is inside the pairing
+  /// area's allowed set, so the redirect returns STAY and no page-stack
+  /// replacement happens under this sheet. There is nothing to race.
+  ///
+  /// On failure nothing navigated, so the sheet stays open holding the error —
+  /// it is still the user's context for deciding what to do.
+  Future<void> _confirm() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(pairingServiceProvider).unpair();
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (error) {
+      developer.log('unpair failed: $error', name: 'UnpairSheet');
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error =
+            'That did not go through. Check your connection and try again.';
+      });
+    }
+  }
 
   final _controller = TextEditingController();
 
@@ -104,6 +139,7 @@ class _UnpairSheetState extends State<UnpairSheet> {
                 const SizedBox(height: 10),
                 _field(),
                 const SizedBox(height: 22),
+                _error0(),
                 _buttons(),
               ],
             ),
@@ -149,6 +185,24 @@ class _UnpairSheetState extends State<UnpairSheet> {
     );
   }
 
+  Widget _error0() {
+    final theme = Theme.of(context);
+    if (_error case final message?) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Text(
+          message,
+          key: const Key('unpair-error'),
+          textAlign: TextAlign.center,
+          style: theme.textTheme.titleMedium!.copyWith(
+            color: context.palette.dangerInk,
+          ),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
   Widget _buttons() {
     final theme = Theme.of(context);
 
@@ -159,7 +213,7 @@ class _UnpairSheetState extends State<UnpairSheet> {
           child: SizedBox(
             height: 56,
             child: OutlinedButton(
-              onPressed: () => Navigator.of(context).pop(false),
+              onPressed: _busy ? null : () => Navigator.of(context).pop(false),
               style: OutlinedButton.styleFrom(
                 foregroundColor: theme.colorScheme.onSurface,
                 side: BorderSide(color: theme.colorScheme.outline, width: 1.2),
@@ -174,9 +228,7 @@ class _UnpairSheetState extends State<UnpairSheet> {
           child: SizedBox(
             height: 56,
             child: FilledButton(
-              onPressed: _confirmed
-                  ? () => Navigator.of(context).pop(true)
-                  : null,
+              onPressed: (_confirmed && !_busy) ? _confirm : null,
               style: FilledButton.styleFrom(
                 backgroundColor: theme.colorScheme.error,
                 foregroundColor: theme.colorScheme.onError,
@@ -188,7 +240,7 @@ class _UnpairSheetState extends State<UnpairSheet> {
                 shape: const StadiumBorder(),
                 textStyle: AppTheme.bold(theme.textTheme.headlineMedium!),
               ),
-              child: const Text('Unpair'),
+              child: Text(_busy ? 'Unpairing…' : 'Unpair'),
             ),
           ),
         ),

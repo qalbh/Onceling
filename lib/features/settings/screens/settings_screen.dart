@@ -55,24 +55,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _unpair() async {
-    final confirmed = await UnpairSheet.show(
+    // The sheet owns the call now (**P2-36**): it needs to stay open and hold
+    // the error when the callable fails, which it cannot do from here once it
+    // has popped.
+    //
+    // Still no navigation on success. Clearing `coupleId` makes the gate want
+    // /pairing, and /settings is inside that area's allowed set, so it returns
+    // STAY and this screen remains — the partner, sitting on /feed, is the one
+    // the gate actually moves. See P2-37 for what manual navigation cost here.
+    await UnpairSheet.show(
       context,
       partnerName: memberName(_partnerId),
       streak: widget.streak,
     );
-    if (confirmed != true || !mounted) return;
-
-    // No navigation here, for the same reason the auth sheet does not pop
-    // itself: the gate owns this transition. Until **P2-36** clears `coupleId`
-    // server-side there is nothing for the gate to react to, so confirming
-    // unpair correctly does nothing visible.
-    //
-    // The `context.go(AppRoutes.pairing)` that used to live here was worse than
-    // useless. Device traces showed it navigating to /pairing and the gate
-    // overriding it back to /feed on the very next evaluation — because
-    // `coupleId` is still set — which also unmounted this screen underneath
-    // the user. Manual navigation that the gate immediately contradicts is the
-    // same class of bug as popping a sheet the gate is already disposing.
   }
 
   @override

@@ -26,7 +26,12 @@ UserProfile fakeProfile({String? coupleId, String? pairingCode}) => UserProfile(
 
 /// Records calls; never reaches the Functions emulator.
 class FakePairingService implements PairingService {
-  FakePairingService({this.code = 'MK4Q7B', this.requestError, this.coupleId});
+  FakePairingService({
+    this.code = 'MK4Q7B',
+    this.requestError,
+    this.coupleId,
+    this.unpairError,
+  });
 
   final String code;
 
@@ -36,6 +41,9 @@ class FakePairingService implements PairingService {
 
   /// Returned by [respondToPairing] on accept.
   final String? coupleId;
+
+  /// Thrown by [unpair] when set — drives the sheet's failure state.
+  final Object? unpairError;
 
   final List<String> calls = [];
 
@@ -55,6 +63,12 @@ class FakePairingService implements PairingService {
   @override
   Future<void> cancelPairingRequest(String requestId) async {
     calls.add('cancelPairingRequest:$requestId');
+  }
+
+  @override
+  Future<void> unpair() async {
+    calls.add('unpair');
+    if (unpairError case final error?) throw error;
   }
 
   @override

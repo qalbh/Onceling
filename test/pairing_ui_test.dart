@@ -213,6 +213,27 @@ void main() {
       }
     });
 
+    testWidgets('an accepted request from a past pairing shows the entry form', (
+      tester,
+    ) async {
+      useTallView(tester);
+      // After an unpair the newest outgoing request stays 'accepted' forever.
+      // Being on this screen means coupleId is null, so that request refers to
+      // a couple that no longer exists — rendering its card stranded the user
+      // on "Paired / Opening your space…" with no code. Seen on device.
+      await tester.pumpWidget(
+        _pairingApp(
+          signedInOverrides(
+            outgoing: fakeRequest(status: PairingRequestStatus.accepted),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pair us'), findsOneWidget);
+      expect(find.text('Opening your space…'), findsNothing);
+    });
+
     testWidgets('cancelled returns to the entry form on demand', (
       tester,
     ) async {

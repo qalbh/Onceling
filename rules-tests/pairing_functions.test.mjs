@@ -19,7 +19,14 @@ import {
   getFunctions,
   httpsCallable,
 } from "firebase/functions";
-import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+} from "firebase/firestore";
 
 import { assertPairingInvariant } from "./pairing_invariant.mjs";
 
@@ -35,6 +42,8 @@ const requireFromFunctions = createRequire(
 const pairing = requireFromFunctions("./lib/pairing.js");
 const { getFirestore } = requireFromFunctions("firebase-admin/firestore");
 const profile = requireFromFunctions("./lib/profile.js");
+const unpairModule = requireFromFunctions("./lib/unpair.js");
+const adminDb = () => getFirestore();
 
 const PROJECT = "qalb-coupleapp-dev";
 
@@ -618,6 +627,250 @@ describe("requestPairing — denormalised sender (P2-25)", () => {
     const request = await readDoc(`pairingRequests/${requestId}`);
 
     assert.equal(request.fromAvatarUrl, null);
+  });
+});
+
+describe("unpair — phase 1, separation (P2-36)", () => {
+  const readAll = (name) =>
+    admin(async (db) => {
+      const snap = await getDocs(collection(db, name));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    });
+
+  /** Two seeded users, really paired through the callables. */
+  async function pairedCouple() {
+    const a = await newUser();
+    const b = await newUser();
+    await seedProfile(a.uid);
+    await seedProfile(b.uid);
+    const { code } = (await b.call("ensurePairingCode")).data;
+    const { requestId } = (await a.call("requestPairing", { code })).data;
+    const { coupleId } = (
+      await b.call("respondToPairing", { requestId, accept: true })
+    ).data;
+    return { a, b, coupleId };
+  }
+
+  test("clears coupleId on BOTH users and marks the couple unpaired", async () => {
+    const { a, b, coupleId } = await pairedCouple();
+
+    const { data } = await a.call("unpair", {});
+    assert.equal(data.coupleId, coupleId);
+
+    assert.equal((await readDoc(`users/${a.uid}`)).coupleId, null);
+    // The partner is separated without acting — that is the guarantee.
+    assert.equal((await readDoc(`users/${b.uid}`)).coupleId, null);
+
+    const couple = await readDoc(`couples/${coupleId}`);
+    // The sweep may already have removed it; if not, it is marked.
+    if (couple !== undefined) {
+      assert.equal(couple.status, "unpaired");
+      assert.equal(couple.unpairedBy, a.uid);
+      assert.ok(couple.unpairedAt != null);
+    }
+    await assertPairingInvariant(readAll, "after unpair");
+  });
+
+  test("is idempotent — calling twice succeeds", async () => {
+    const { a } = await pairedCouple();
+
+    await a.call("unpair", {});
+    const second = await a.call("unpair", {});
+
+    assert.equal(second.data.alreadyUnpaired, true);
+    assert.equal(second.data.coupleId, null);
+    await assertPairingInvariant(readAll, "double unpair");
+  });
+
+  test("the partner calling second also succeeds", async () => {
+    const { a, b } = await pairedCouple();
+
+    await a.call("unpair", {});
+    const partner = await b.call("unpair", {});
+
+    assert.equal(partner.data.alreadyUnpaired, true);
+    await assertPairingInvariant(readAll, "both called");
+  });
+
+  test("an unpaired caller is not an error", async () => {
+    const lonely = await newUser();
+    await seedProfile(lonely.uid);
+
+    const { data } = await lonely.call("unpair", {});
+    assert.equal(data.alreadyUnpaired, true);
+  });
+
+  test("a non-member cannot unpair a couple they do not belong to", async () => {
+    const { coupleId } = await pairedCouple();
+    const outsider = await newUser();
+    // Forge the outsider's coupleId to point at someone else's couple.
+    await seedProfile(outsider.uid, { coupleId });
+
+    await expectCallableError(
+      outsider.call("unpair", {}),
+      "functions/permission-denied",
+      "not-a-member",
+    );
+  });
+
+  test("unauthenticated is rejected", async () => {
+    await expectCallableError(
+      anonCaller()("unpair", {}),
+      "functions/unauthenticated",
+    );
+  });
+
+  test("a coupleId pointing at nothing is refused, not silently cleared", async () => {
+    const user = await newUser();
+    await seedProfile(user.uid, { coupleId: "ghost-couple" });
+
+    await expectCallableError(
+      user.call("unpair", {}),
+      "functions/failed-precondition",
+      "couple-missing",
+    );
+  });
+
+  test("concurrent unpair by both partners: one couple, no error", async () => {
+    for (let round = 0; round < 5; round++) {
+      const { a, b } = await pairedCouple();
+
+      const results = await Promise.allSettled([
+        a.call("unpair", {}),
+        b.call("unpair", {}),
+      ]);
+
+      const failed = results.filter((r) => r.status === "rejected");
+      assert.equal(failed.length, 0, `round ${round}: both calls must succeed`);
+      assert.equal((await readDoc(`users/${a.uid}`)).coupleId, null);
+      assert.equal((await readDoc(`users/${b.uid}`)).coupleId, null);
+      await assertPairingInvariant(readAll, `concurrent unpair round ${round}`);
+    }
+  });
+
+  test("after unpair both can claim fresh codes and pair again", async () => {
+    const { a, b } = await pairedCouple();
+    await a.call("unpair", {});
+
+    const codeA = (await a.call("ensurePairingCode")).data.code;
+    const codeB = (await b.call("ensurePairingCode")).data.code;
+    assert.ok(codeA && codeB && codeA !== codeB);
+
+    const { requestId } = (await a.call("requestPairing", { code: codeB }))
+      .data;
+    const again = (
+      await b.call("respondToPairing", { requestId, accept: true })
+    ).data;
+
+    assert.ok(again.coupleId);
+    assert.equal((await readDoc(`users/${a.uid}`)).coupleId, again.coupleId);
+    assert.equal((await readDoc(`users/${b.uid}`)).coupleId, again.coupleId);
+    await assertPairingInvariant(readAll, "re-paired");
+  });
+});
+
+describe("unpair — phase 2, the sweep (P2-36)", () => {
+  const readAll = (name) =>
+    admin(async (db) => {
+      const snap = await getDocs(collection(db, name));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    });
+
+  /** Items plus their secret bodies, seeded straight in. */
+  async function seedHistory(coupleId, count) {
+    for (let i = 0; i < count; i++) {
+      await writeDoc(`items/${coupleId}-item-${i}`, {
+        coupleId,
+        senderId: "someone",
+        type: i % 2 === 0 ? "text" : "secret",
+        createdAt: new Date(),
+      });
+      // coupleId on the body is what lets the sweep reach an orphan whose
+      // item has already been deleted. P2-12 must write this.
+      await writeDoc(`secretBodies/${coupleId}-item-${i}`, {
+        coupleId,
+        body: `b${i}`,
+      });
+    }
+  }
+
+  test("deletes items and secret bodies, and the couple document last", async () => {
+    await writeDoc("couples/SWEEP1", {
+      memberIds: ["x", "y"],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+    await seedHistory("SWEEP1", 5);
+    // An unrelated couple's history must survive untouched.
+    await writeDoc("couples/OTHER", {
+      memberIds: ["p", "q"],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+    await seedHistory("OTHER", 3);
+
+    await unpairModule.sweepCouple(adminDb(), "SWEEP1");
+
+    const items = await readAll("items");
+    const bodies = await readAll("secretBodies");
+    assert.equal(items.filter((i) => i.coupleId === "SWEEP1").length, 0);
+    assert.equal(bodies.filter((b) => b.id.startsWith("SWEEP1")).length, 0);
+    assert.equal(await readDoc("couples/SWEEP1"), undefined);
+
+    // The neighbour is intact.
+    assert.equal(items.filter((i) => i.coupleId === "OTHER").length, 3);
+    assert.equal((await readDoc("couples/OTHER")) !== undefined, true);
+  });
+
+  test("an interrupted sweep is completed by a re-run", async () => {
+    await writeDoc("couples/SWEEP2", {
+      memberIds: ["x", "y"],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+    await seedHistory("SWEEP2", 6);
+
+    // Simulate dying partway: delete some items and one body by hand, leaving
+    // the couple document in place — which is exactly why it goes last.
+    await admin(async (db) => {
+      await deleteDoc(doc(db, "items", "SWEEP2-item-0"));
+      await deleteDoc(doc(db, "items", "SWEEP2-item-1"));
+      await deleteDoc(doc(db, "secretBodies", "SWEEP2-item-0"));
+    });
+
+    await unpairModule.sweepCouple(adminDb(), "SWEEP2");
+
+    const items = await readAll("items");
+    const bodies = await readAll("secretBodies");
+    assert.equal(items.filter((i) => i.coupleId === "SWEEP2").length, 0);
+    assert.equal(bodies.filter((b) => b.id.startsWith("SWEEP2")).length, 0);
+    assert.equal(await readDoc("couples/SWEEP2"), undefined);
+  });
+
+  test("sweeping twice is not an error", async () => {
+    await writeDoc("couples/SWEEP3", {
+      memberIds: ["x", "y"],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+    await seedHistory("SWEEP3", 2);
+
+    await unpairModule.sweepCouple(adminDb(), "SWEEP3");
+    await unpairModule.sweepCouple(adminDb(), "SWEEP3");
+
+    assert.equal(await readDoc("couples/SWEEP3"), undefined);
+  });
+
+  test("a couple with no history sweeps cleanly", async () => {
+    await writeDoc("couples/SWEEP4", {
+      memberIds: ["x", "y"],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+
+    const result = await unpairModule.sweepCouple(adminDb(), "SWEEP4");
+    assert.equal(result.items, 0);
+    assert.equal(await readDoc("couples/SWEEP4"), undefined);
   });
 });
 
