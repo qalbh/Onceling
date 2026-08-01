@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:couple_app/common/providers.dart';
 import 'package:couple_app/features/auth/auth_service.dart';
 import 'package:couple_app/features/auth/models/user_profile.dart';
+import 'package:couple_app/features/mood/mood_service.dart';
 import 'package:couple_app/features/pairing/couple_names.dart';
 import 'package:couple_app/features/pairing/models/couple.dart';
 import 'package:couple_app/features/pairing/models/pairing_request.dart';
@@ -100,6 +103,59 @@ class FakePairingService implements PairingService {
   }
 }
 
+/// Records calls; never reaches the Functions emulator.
+///
+/// A fake rather than a fake-Firestore write, because `setMood` is a callable:
+/// `couples` denies every client write, so there is no document path to fake.
+class FakeMoodService implements MoodService {
+  FakeMoodService({this.error});
+
+  /// Thrown by [setMood] when set — drives the send-failure copy.
+  final Object? error;
+
+  final List<({String emoji, String note})> calls = [];
+
+  @override
+  Future<void> setMood({required String emoji, required String note}) async {
+    calls.add((emoji: emoji, note: note));
+    if (error case final failure?) throw failure;
+  }
+}
+
+/// Writes an `items` document straight into a fake Firestore.
+///
+/// Bypasses [FeedService] on purpose: seeding is meant to model messages that
+/// are *already there*, including ones this client could never have written —
+/// the partner's, and another couple's.
+///
+/// [secondsAgo] orders the thread. Larger is older, so `seedItem(..., 0)` is
+/// the newest message.
+Future<String> seedItem(
+  FakeFirebaseFirestore db, {
+  required String coupleId,
+  required String senderId,
+  String type = 'text',
+  String? body,
+  String? emoji,
+  int secondsAgo = 0,
+  Map<String, String> reactions = const {},
+  Map<String, dynamic> extra = const {},
+}) async {
+  final ref = await db.collection('items').add({
+    'coupleId': coupleId,
+    'senderId': senderId,
+    'type': type,
+    'createdAt': Timestamp.fromDate(
+      DateTime(2026, 7, 30, 9).subtract(Duration(seconds: secondsAgo)),
+    ),
+    'reactions': reactions,
+    'body': ?body,
+    'emoji': ?emoji,
+    ...extra,
+  });
+  return ref.id;
+}
+
 /// A pairing request with sensible defaults; override what the test cares about.
 PairingRequest fakeRequest({
   String id = 'req-1',
@@ -171,7 +227,15 @@ List<Override> signedInOverrides({
   List<PairingRequest> incoming = const [],
   PairingRequest? outgoing,
   bool withNames = true,
+  String partnerUid = 'uid-partner',
+  // A fake Firestore, when the test exercises a real query. Overriding the
+  // root provider rather than the feed's own means the query, the mapper and
+  // the writes all run for real — only the backend is fake.
+  FakeFirebaseFirestore? firestore,
+  MoodService? mood,
 }) => [
+  if (firestore case final db?) firestoreProvider.overrideWithValue(db),
+  if (mood case final service?) moodServiceProvider.overrideWithValue(service),
   authStateProvider.overrideWith((ref) => Stream.value(FakeUser())),
   currentUserProvider.overrideWith(
     (ref) => Stream.value(
@@ -192,6 +256,7 @@ List<Override> signedInOverrides({
         : fakeCouple(
             id: coupleId,
             uid: uid,
+            partnerUid: partnerUid,
             myName: displayName,
             // The other half of the mock pair, so the title reads sensibly
             // whichever of the two the test is signed in as.

@@ -1,8 +1,8 @@
 # Onceling — Status
 
-**Phase 2 of 4 · Last updated: 2026-07-31**
+**Phase 2 of 4 · Last updated: 2026-08-02**
 
-**Now:** P2-10 / P2-11 — the remaining Security Rules and their emulator tests
+**Now:** P2-13 — photo upload to Cloud Storage (enable the Storage emulator first)
 
 ---
 
@@ -88,7 +88,11 @@ Flagged in review. Small, keeps getting deferred because none of it is code.
 
 Looks finished, backed by nothing. This is the real Phase 2 worklist.
 
-- [ ] **M-01** Feed — `sampleThread()` hardcoded → Firestore collection
+- [x] **M-01** Feed — `sampleThread()` hardcoded → Firestore collection
+      *`sample_thread.dart` is deleted, with `mayaUid`, `devonUid`, `mockMembers`,
+      `mockPartnerOf` and the resolver's fallback branch. `defaultTrayEmoji` and
+      `reactionEmoji` were never mock — they moved to `lib/features/feed/feed_emoji.dart`
+      rather than dying with the file.*
 - [x] **M-02** Users — `Person` enum (`maya`, `devon`) → real accounts and profiles
       *Names now come from the signed-in profile (`myNameProvider`) and from
       `couples/{id}.memberNames`, denormalised by `respondToPairing` from the two user
@@ -110,13 +114,23 @@ Looks finished, backed by nothing. This is the real Phase 2 worklist.
       map the resolver falls back to. **That fallback is deleted at P2-12** with the
       mock thread — it exists so the sample feed stays readable, not because mock
       identity is wanted.*
+      *Done: **P2-12** deleted the file and the fallback. The paragraph above describes
+      the state between M-02 and P2-12, kept because it explains why the fallback ever
+      existed.*
 - [ ] **M-03** Pairing — `myCode = 'MK4Q7B'`, `_canPair` only checks `length == 6`
 - [ ] **M-04** Share link — toast stub → deep link generation and handling
 - [ ] **M-05** Secrets — `markOpened()` deletes client-side; must move to a Function
 - [ ] **M-06** Streaks — hardcoded `47` in two places
-- [ ] **M-07** Mood — local state only, no push to partner
+- [x] **M-07** Mood — local state only, no push to partner
+      *Persisted by the `setMood` callable. Push itself is **P3-04**; what landed here
+      is that a mood now reaches the other person at all, which it did not before.*
 - [ ] **M-08** Reactions — singular `reaction` on two types; brief §9 wants plural on all
 - [ ] **M-09** Auth — none
+- [ ] **M-10** Feed header — `994 days · since 4 November 2023` is hardcoded.
+      Cannot be computed yet: `anniversaryDate` is null on every couple by design,
+      because defaulting it to the pairing date is an owner decision nobody has made.
+      `couples/{id}.createdAt` exists and would make the line honest the moment that
+      decision lands. The streak beside it is **M-06**.
 
 ---
 
@@ -261,7 +275,7 @@ there is data.
       Include a **passing** case alongside the two failing writes: a user updating
       their own `displayName` while `coupleId` is present and unchanged must succeed.
       Without it, an over-strict rule passes the negative tests and breaks the app.
-- [ ] **P2-12** Feed persistence with a real-time listener and pagination
+- [x] **P2-12** Feed persistence with a real-time listener and pagination
       **`secretBodies` documents must carry `coupleId`, `senderId` and `body`.** All
       three are load-bearing and the write breaks without any of them:
       - `coupleId` — **P2-36**'s sweep finds orphans by couple. Bodies are keyed by
@@ -275,8 +289,72 @@ there is data.
       *The rules reject a body missing any of them, so this is a hard requirement,
       not a nicety. Items must also carry only the keys their `type` permits: the
       validator is per-type, not a union.*
+      *Done. `firestore.rules` did not change — the point of landing P2-10 first was
+      that the feed is built against a closed collection, so no auditor run was
+      triggered.*
+      *Reading: one `StreamProvider` on `items`, filtered to the caller's `coupleId`,
+      ordered `createdAt desc`, `limit`ed. The filter is load-bearing — `allow list`
+      grants the query only where it provably stays inside the caller's couple, so
+      dropping the `where` returns permission-denied for the whole query rather than
+      more rows. An unpaired user emits an empty page instead of querying; the gate
+      already prevents that state, but the provider does not assume the gate.*
+      *Pagination is **one growing window**, not a live head plus static tail. Page
+      size 30 — about three screens of bubbles, enough to fill the view and absorb
+      some scrolling. Every page stays live, so a reaction landing on last week's
+      message updates in place. The cost is that growing the limit re-subscribes and
+      Firestore re-delivers the whole window: N pages cost 30+60+90+… reads, quadratic
+      in pages. Right trade for a two-person thread, wrong one for many participants
+      or long scrollback sessions; the fix if it bites is a live head plus `startAfter`
+      pages, at the price of older reactions going static.*
+      *The list is `reverse: true`. Index 0 is the newest message, so the thread opens
+      where it should with no post-frame `jumpTo`, and appending older pages does not
+      shift what is on screen.*
+      *Two things the mapper had to learn, both forced by the rules rather than taste:
+      `createdAt` on a create is `serverTimestamp()` because `allow create` requires
+      `createdAt == request.time`; and **null-valued keys are stripped**, because in
+      Firestore an explicit null is a *present* key and `keys().hasOnly()` counts it.
+      Writing `openingStartedAt: null` on a secret would be rejected outright — that
+      field belongs to **P3-01** and is not in the permitted create set at all. Same
+      for `revealDurationSeconds` on an `untilClosed` secret.*
+      *A message you have just sent carries an unresolved server timestamp, which reads
+      as null until the ack. The mapper estimates it as `now()` — what the native SDKs'
+      `ServerTimestampBehavior.estimate` does — and the provider re-sorts, so your own
+      message appears at the top rather than at the far end for the round trip.*
+      *Emoji taps no longer aggregate. The mock's `count: 14` is unreachable from a
+      client because `allow update` is reactions-only, so one tap is one item. `count`
+      stays on the model and in the rules for a server-side aggregate later.*
+      *Reveal is **not** built, deliberately. No client can read a body: `secretBodies`
+      grants `get` only while its item is `opening`, and **P3-01** owns the transition
+      that gets it there. Holding a sealed card opens the reveal screen, which says so
+      — "Not yet", the secret is still sealed, nothing read and nothing lost — rather
+      than faking an open or throwing an error that reads as loss.*
+      *Photos stay stubbed: the compose sheet's "Add photo" chip is still a no-op,
+      and **P2-13** owns it.*
+      *Index added: `items` on `coupleId ASC, createdAt DESC`, which is the feed's only
+      composite. The sweep's `items`/`secretBodies` queries on `coupleId` alone are
+      single-field and auto-indexed. **D-10** applies — the emulator does not enforce
+      indexes, so this needs verifying against dev before **P2-16**.*
+      *Mood is one callable, `setMood`, doing both halves of the **P2-06** decision in
+      one batch: the ambient `moodEmoji`/`moodText`/`moodBy`/`moodUpdatedAt` on
+      `couples/{id}`, and a `status` item for the scrollback. Split across a callable
+      and a client write they could half-apply — an ambient mood with no scrollback
+      record, or a scrollback entry the header contradicts. The item bypasses rules as
+      every Admin SDK write does, safe on the same grounds as `ensureUserProfile`: the
+      payload is a fixed literal, so no caller-supplied key reaches the document.
+      `moodBy` exists because both people write into one couple document, and without
+      it the ambient line cannot say whose mood it is. Nothing renders the ambient
+      value yet — the thread shows the scrollback; the live value is there for the
+      home widget (**P4-01**) and **M-10**'s header line.*
+      *`fake_cloud_firestore` was added as a **dev** dependency. It is what makes the
+      required tests provable rather than self-referential: the query, the pagination
+      window, the mapper and every write run for real against an in-memory backend,
+      with only `firestoreProvider` overridden.*
 - [ ] **P2-13** Photo upload to Cloud Storage. *Enable the Storage emulator first —
       until it is on, Functions calls to Cloud Storage hit the real dev bucket.*
+      *The compose sheet's "Add photo" chip is still a no-op after **P2-12** — the only
+      item type the client cannot write. `PhotoMessage`, its mapper branch and its
+      `itemKeysFor('photo')` rule already exist and are tested, so this is the upload
+      and the `mediaUrl` write, not the model.*
 - [x] **P2-14** Migrate named routes → `go_router` with a single auth redirect
       *`resolveRedirect()` in `lib/common/app_router.dart` is the whole gate, a
       pure function: loading → splash (never a sign-in flash), signed-in with no
@@ -286,7 +364,23 @@ there is data.
       the app live. Sheets stayed sheets; the secret reveal became a route.
       Unpair's mock path now lands on pairing, not sign-in — a signed-in user
       cannot reach sign-in, the gate bounces them.*
-- [ ] **P2-15** Loading / empty / error states on every read
+- [x] **P2-15** Loading / empty / error states on every read
+      *Done in the same change as **P2-12**, not after it. Every read added there needs
+      all three, and retrofitting them would have meant revisiting each one.*
+      *All three replace the **list only**. The header and the compose tray do not
+      depend on `items`, so none of them is ever a bare spinner over the whole screen —
+      the app keeps looking like itself while the thread resolves.*
+      *Loading is deliberately empty rather than a spinner: the first page usually
+      arrives faster than a spinner is noticed, and one that flashes reads as something
+      going wrong. Paging back does not pass through it at all —
+      `when(skipLoadingOnReload: true)` keeps the thread on screen while the wider
+      window loads.*
+      *Empty gets copy, because it is the first thing two people see together after
+      pairing. Error is recoverable: it says nothing has been lost — which is true —
+      and offers a retry that re-runs the listener, asserted by a test where the first
+      attempt fails and the second succeeds.*
+      *Write failures are surfaced too, though they are not reads: a send that silently
+      does nothing is the worst available failure on a thread two people trust.*
 - [ ] **P2-16** Upgrade **dev** to Blaze; set a $5 budget alert.
       *Needed to deploy Functions. The emulator runs them locally on Spark, so
       build and test the P2-09 family (P2-09/09b/09c) first and upgrade only when you
@@ -568,6 +662,34 @@ Non-blocking. Fix when convenient.
       reporting the winner's document. `.create()` was kept over `.set()` deliberately
       — `set` would clobber a document written between the existence check and the
       write. Recheck if the function's read/write shape changes.
+- [ ] **D-15** Feed pagination is one growing `limit`, so page N re-delivers the whole
+      window: N pages cost 30+60+90+… document reads, quadratic in pages. Chosen at
+      **P2-12** so every page stays live and a reaction on an old message updates in
+      place. Fine for a two-person thread; revisit if read volume or scrollback depth
+      makes it matter. The fix is a live head plus `startAfter` pages, and it costs
+      live reactions on everything below the head.
+- [ ] **D-16** `fake_cloud_firestore` is a dev dependency as of **P2-12** and does not
+      evaluate Security Rules. The Dart tests therefore prove the client asks the right
+      question; `rules-tests/items_rules.test.mjs` proves the server would refuse the
+      wrong one. Neither alone is sufficient, and a reader of either could mistake it
+      for both. It also pulled in nine transitive dev packages.
+- [ ] **D-17** The item and body payloads are written in Dart
+      (`itemCreatePayload`, `secretBodyPayload`) and mirrored by hand in the P2-12
+      rules tests. Dart and JS cannot share a constant, so a change to one must be
+      made to the other — and `flutter test` alone will not catch the drift, because
+      the Dart side has no rules engine behind it. Same shape as the
+      `pairingCodeAlphabet` mirror.
+- [ ] **D-14** The functions suite has now **three times** reported one failure that
+      passed on retry with no code change — suspected stale build or a
+      `clearFirestore()` race between parallel files. Not diagnosed. If it recurs,
+      capture WHICH test failed before re-running, rather than retrying and reporting
+      the good number. An intermittent failure in the suite that proves the pairing
+      invariant is worth understanding, not tolerating.
+      *Third occurrence at **P2-12**: 78/79, then 79/79 on each of three subsequent
+      runs. The identity was **not** captured — the run was piped through a
+      summary-only `grep`, so the `not ok` line was discarded before it could be read.
+      That is the exact mistake this entry was written to prevent. Run the suite to a
+      **retained log file** and grep the file, never the pipe.*
 
 ---
 

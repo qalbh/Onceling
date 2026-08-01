@@ -181,6 +181,7 @@ abstract final class AppTheme {
     traySlot: 25,
     revealSeal: 26,
     pickerTile: 30,
+    emptyState: 44,
   );
 
   static ThemeData light() {

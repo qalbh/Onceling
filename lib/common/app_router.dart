@@ -172,7 +172,11 @@ class SecretRevealArgs {
 
   final SecretMessage secret;
   final String senderName;
-  final String body;
+
+  /// Null when the body could not be read — see [SecretRevealScreen.body].
+  /// Always null today: **P3-01** owns the transition that makes a body
+  /// readable.
+  final String? body;
 }
 
 /// Held while auth or the profile document is still resolving.

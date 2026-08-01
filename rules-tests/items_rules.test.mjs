@@ -26,6 +26,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 
 const ALICE = 'alice';
@@ -537,5 +538,211 @@ describe('secretBodies', () => {
         createdAt: serverTimestamp(),
       }),
     );
+  });
+});
+
+// The writes the P2-12 client actually makes, in the exact shape it makes
+// them. The tests above prove the rules; these prove the *app* satisfies them.
+//
+// Source of truth for these payloads is `itemCreatePayload` and
+// `secretBodyPayload` in `lib/features/feed/models/feed_item_mapper.dart`.
+// Dart and JS cannot share a constant, so a change there must be mirrored
+// here — and a `flutter test` alone would not catch the drift, because the
+// Dart side has no rules engine behind it.
+describe('P2-12 — the client\'s own payloads', () => {
+  test('a text send is accepted', async () => {
+    await assertSucceeds(
+      setDoc(doc(db(ALICE), 'items', 'p2-12-text'), {
+        senderId: ALICE,
+        reactions: {},
+        type: 'text',
+        body: 'be there in ten',
+        coupleId: OURS,
+        createdAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('an emoji send is accepted, count and all', async () => {
+    await assertSucceeds(
+      setDoc(doc(db(ALICE), 'items', 'p2-12-emoji'), {
+        senderId: ALICE,
+        reactions: {},
+        type: 'emoji',
+        emoji: '🧋',
+        count: 1,
+        coupleId: OURS,
+        createdAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('a timed secret is accepted with no openingStartedAt', async () => {
+    // The mapper strips null-valued keys, so the field P3-01 owns is absent
+    // rather than null. It is not in itemKeysFor('secret') at all.
+    await assertSucceeds(
+      setDoc(doc(db(ALICE), 'items', 'p2-12-secret'), {
+        senderId: ALICE,
+        reactions: {},
+        type: 'secret',
+        secretState: 'sealed',
+        revealDurationSeconds: 10,
+        heldFullCountdown: false,
+        coupleId: OURS,
+        createdAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('an untilClosed secret OMITS revealDurationSeconds rather than nulling it', async () => {
+    await assertSucceeds(
+      setDoc(doc(db(ALICE), 'items', 'p2-12-untilclosed'), {
+        senderId: ALICE,
+        reactions: {},
+        type: 'secret',
+        secretState: 'sealed',
+        heldFullCountdown: false,
+        coupleId: OURS,
+        createdAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('the same secret WITH a null openingStartedAt is rejected', async () => {
+    // The reason the mapper strips nulls, asserted rather than asserted-about:
+    // in Firestore an explicit null is a present key, and hasOnly() counts it.
+    await assertFails(
+      setDoc(doc(db(ALICE), 'items', 'p2-12-nulled'), {
+        senderId: ALICE,
+        reactions: {},
+        type: 'secret',
+        secretState: 'sealed',
+        revealDurationSeconds: 10,
+        openingStartedAt: null,
+        heldFullCountdown: false,
+        coupleId: OURS,
+        createdAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('a client cannot open its own secret by creating it as opening', async () => {
+    // P3-01 owns sealed -> opening, and it runs on the Admin SDK. A client
+    // that could create an item already `opening` would hand itself a
+    // readable body.
+    await assertFails(
+      setDoc(doc(db(ALICE), 'items', 'p2-12-selfopen'), {
+        senderId: ALICE,
+        reactions: {},
+        type: 'secret',
+        secretState: 'opening',
+        revealDurationSeconds: 10,
+        heldFullCountdown: false,
+        coupleId: OURS,
+        createdAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('a reaction goes in as a FIELD PATH merge, not a map replace', async () => {
+    // What FirestoreFeedService.react() sends: `{'reactions.<uid>': emoji}`.
+    // A different write shape from the whole-map replace tested above, and
+    // the one that actually ships.
+    await testEnv.withSecurityRulesDisabled((c) =>
+      updateDoc(doc(c.firestore(), 'items', 'ours-1'), {
+        reactions: { [ALICE]: '🥹' },
+      }),
+    );
+
+    await assertSucceeds(
+      updateDoc(doc(db(BOB), 'items', 'ours-1'), { [`reactions.${BOB}`]: '😮' }),
+    );
+
+    // ...and it merged rather than replaced: Alice's reaction survived.
+    let stored;
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      stored = (await getDoc(doc(c.firestore(), 'items', 'ours-1'))).data();
+    });
+    assert.deepEqual(stored.reactions, { [ALICE]: '🥹', [BOB]: '😮' });
+  });
+
+  test('a field-path merge cannot touch the partner\'s key either', async () => {
+    await assertFails(
+      updateDoc(doc(db(BOB), 'items', 'ours-1'), {
+        [`reactions.${ALICE}`]: '😮',
+      }),
+    );
+  });
+
+  test('the secret batch is all-or-nothing at the rules layer', async () => {
+    // FirestoreFeedService.sendSecret() commits the item and its body
+    // together. A batch fails whole if any write in it is denied, so a
+    // malformed body cannot leave a bodyless secret behind.
+    const alice = db(ALICE);
+    const batch = writeBatch(alice);
+    batch.set(doc(alice, 'items', 'p2-12-batch'), {
+      senderId: ALICE,
+      reactions: {},
+      type: 'secret',
+      secretState: 'sealed',
+      revealDurationSeconds: 10,
+      heldFullCountdown: false,
+      coupleId: OURS,
+      createdAt: serverTimestamp(),
+    });
+    // Missing coupleId — the field P2-36's sweep needs.
+    batch.set(doc(alice, 'secretBodies', 'p2-12-batch'), {
+      senderId: ALICE,
+      body: 'this should not survive',
+      createdAt: serverTimestamp(),
+    });
+    await assertFails(batch.commit());
+
+    let orphanExists;
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      orphanExists = (
+        await getDoc(doc(c.firestore(), 'items', 'p2-12-batch'))
+      ).exists();
+    });
+    assert.equal(orphanExists, false, 'the item must not have landed alone');
+  });
+
+  test('a well-formed batch lands both documents', async () => {
+    const alice = db(ALICE);
+    const batch = writeBatch(alice);
+    batch.set(doc(alice, 'items', 'p2-12-ok'), {
+      senderId: ALICE,
+      reactions: {},
+      type: 'secret',
+      secretState: 'sealed',
+      revealDurationSeconds: 10,
+      heldFullCountdown: false,
+      coupleId: OURS,
+      createdAt: serverTimestamp(),
+    });
+    batch.set(doc(alice, 'secretBodies', 'p2-12-ok'), {
+      coupleId: OURS,
+      senderId: ALICE,
+      body: 'the surprise is a dog',
+      createdAt: serverTimestamp(),
+    });
+    await assertSucceeds(batch.commit());
+  });
+
+  test('a grown pagination window is still a permitted query', async () => {
+    // Pagination is one growing limit, not startAfter — page two is the same
+    // query asking for more. The rule must not care how large the window is.
+    for (const size of [30, 60, 90]) {
+      await assertSucceeds(
+        getDocs(
+          query(
+            collection(db(ALICE), 'items'),
+            where('coupleId', '==', OURS),
+            orderBy('createdAt', 'desc'),
+            limit(size),
+          ),
+        ),
+      );
+    }
   });
 });

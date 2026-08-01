@@ -19,5 +19,6 @@ export {
   requestPairing,
   respondToPairing,
 } from "./pairing.js";
+export { setMood } from "./mood.js";
 export { ensureUserProfile } from "./profile.js";
 export { sweepUnpairedCouple, unpair } from "./unpair.js";

@@ -991,3 +991,140 @@ describe("cancelPairingRequest", () => {
     );
   });
 });
+
+describe("setMood (P2-12 / M-07)", () => {
+  const readAll = (name) =>
+    admin(async (db) => {
+      const snap = await getDocs(collection(db, name));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    });
+
+  /** Two seeded users, really paired through the callables. */
+  async function pairedCouple() {
+    const a = await newUser();
+    const b = await newUser();
+    await seedProfile(a.uid);
+    await seedProfile(b.uid);
+    const { code } = (await b.call("ensurePairingCode")).data;
+    const { requestId } = (await a.call("requestPairing", { code })).data;
+    const { coupleId } = (
+      await b.call("respondToPairing", { requestId, accept: true })
+    ).data;
+    return { a, b, coupleId };
+  }
+
+  test("writes the ambient value AND the scrollback item", async () => {
+    const { a, coupleId } = await pairedCouple();
+
+    await a.call("setMood", { emoji: "☕", note: "running on one coffee" });
+
+    // The couple half — the live value, on a document no client may write.
+    const couple = await readDoc(`couples/${coupleId}`);
+    assert.equal(couple.moodEmoji, "☕");
+    assert.equal(couple.moodText, "running on one coffee");
+    assert.equal(couple.moodBy, a.uid);
+    assert.ok(couple.moodUpdatedAt, "moodUpdatedAt was stamped");
+
+    // The items half — the scrollback record.
+    const items = await readAll("items");
+    assert.equal(items.length, 1);
+    assert.equal(items[0].type, "status");
+    assert.equal(items[0].coupleId, coupleId);
+    assert.equal(items[0].senderId, a.uid);
+    assert.equal(items[0].body, "running on one coffee");
+    assert.equal(items[0].emoji, "☕");
+    assert.deepEqual(items[0].reactions, {});
+  });
+
+  test("a second mood appends to scrollback and replaces the ambient value", async () => {
+    const { a, b, coupleId } = await pairedCouple();
+
+    await a.call("setMood", { emoji: "☕", note: "one coffee" });
+    await b.call("setMood", { emoji: "🎧", note: "heads down" });
+
+    // Scrollback accumulates: a mood is a moment, not a mutable field.
+    assert.equal((await readAll("items")).length, 2);
+
+    // The ambient value is whoever set one last.
+    const couple = await readDoc(`couples/${coupleId}`);
+    assert.equal(couple.moodEmoji, "🎧");
+    assert.equal(couple.moodBy, b.uid);
+  });
+
+  test("an emoji with no note is fine — a mood need not have words", async () => {
+    const { a, coupleId } = await pairedCouple();
+
+    await a.call("setMood", { emoji: "🫠", note: "" });
+
+    assert.equal((await readDoc(`couples/${coupleId}`)).moodText, "");
+    assert.equal((await readAll("items"))[0].body, "");
+  });
+
+  test("an unpaired user cannot set one", async () => {
+    const solo = await newUser();
+    await seedProfile(solo.uid);
+
+    await assert.rejects(
+      () => solo.call("setMood", { emoji: "☕", note: "hello" }),
+      /not paired|failed-precondition/i,
+    );
+    assert.equal((await readAll("items")).length, 0);
+  });
+
+  test("a profile pointing at a couple that does not list you is refused", async () => {
+    // The incoherent state P2-18 exists to prevent. Membership is checked
+    // against the couple, never inferred from the caller's own profile.
+    const { coupleId } = await pairedCouple();
+    const outsider = await newUser();
+    await seedProfile(outsider.uid, { coupleId });
+
+    await assert.rejects(
+      () => outsider.call("setMood", { emoji: "☕", note: "not mine" }),
+      /permission-denied|not yours/i,
+    );
+  });
+
+  test("anonymous callers are rejected", async () => {
+    const call = anonCaller();
+    await assert.rejects(
+      () => call("setMood", { emoji: "☕", note: "hello" }),
+      /Sign in first/i,
+    );
+  });
+
+  test("a missing or non-string emoji is rejected", async () => {
+    const { a } = await pairedCouple();
+
+    await assert.rejects(
+      () => a.call("setMood", { note: "no emoji" }),
+      /Pick a mood/i,
+    );
+    await assert.rejects(
+      () => a.call("setMood", { emoji: 42, note: "not a string" }),
+      /Pick a mood/i,
+    );
+    assert.equal((await readAll("items")).length, 0);
+  });
+
+  test("an over-long note is rejected rather than truncated", async () => {
+    // Truncating would silently publish a different sentence to the other
+    // person than the one that was written.
+    const { a } = await pairedCouple();
+    const { MAX_MOOD_NOTE } = requireFromFunctions("./lib/mood.js");
+
+    await assert.rejects(
+      () => a.call("setMood", { emoji: "☕", note: "x".repeat(MAX_MOOD_NOTE + 1) }),
+      /note is too long/i,
+    );
+    assert.equal((await readAll("items")).length, 0);
+  });
+
+  test("the note is trimmed, so whitespace cannot pad past the bound", async () => {
+    const { a } = await pairedCouple();
+
+    await a.call("setMood", { emoji: "  ☕  ", note: "   spaced out   " });
+
+    assert.equal((await readAll("items"))[0].body, "spaced out");
+    assert.equal((await readAll("items"))[0].emoji, "☕");
+  });
+});

@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:couple_app/common/providers.dart';
-import 'package:couple_app/features/feed/models/sample_thread.dart';
 import 'package:couple_app/features/pairing/couple_names.dart';
 
 import 'test_doubles.dart';
@@ -78,24 +77,33 @@ void main() {
     expect(c.read(coupleTitleProvider), 'The Cottage');
   });
 
-  test('the resolver prefers the couple over the mock map', () async {
-    final c = containerWith(signedInOverrides(coupleId: 'couple-1'));
-    await settle(c);
-    final resolve = c.read(memberNameResolverProvider);
+  test(
+    'the resolver reads me from the profile and them from the couple',
+    () async {
+      final c = containerWith(signedInOverrides(coupleId: 'couple-1'));
+      await settle(c);
+      final resolve = c.read(memberNameResolverProvider);
 
-    expect(resolve('uid-test'), 'Maya', reason: 'me');
-    expect(resolve('uid-partner'), 'Devon', reason: 'from memberNames');
-  });
+      expect(resolve('uid-test'), 'Maya', reason: 'me');
+      expect(resolve('uid-partner'), 'Devon', reason: 'from memberNames');
+    },
+  );
 
-  test('the mock fallback still resolves the two sample uids', () async {
-    // Keeps the sample thread readable until P2-12 replaces its items.
-    final c = containerWith(signedInOverrides(coupleId: 'couple-1'));
-    await settle(c);
-    final resolve = c.read(memberNameResolverProvider);
+  test(
+    'a uid outside the couple gets the neutral label, not a mock name',
+    () async {
+      // Rewritten at P2-12: this used to assert that `mockMembers` resolved the
+      // two sample uids. With the sample thread deleted there is no stand-in
+      // identity left to fall back to, and inventing one for a uid that is not
+      // a member would be a lie about who is in the couple.
+      final c = containerWith(signedInOverrides(coupleId: 'couple-1'));
+      await settle(c);
+      final resolve = c.read(memberNameResolverProvider);
 
-    expect(resolve(mayaUid), 'Maya');
-    expect(resolve(devonUid), 'Devon');
-  });
+      expect(resolve('uid-maya'), unknownMemberName);
+      expect(resolve('uid-devon'), unknownMemberName);
+    },
+  );
 
   test('an unknown uid gets the neutral label, never a blank', () async {
     final c = containerWith(signedInOverrides(coupleId: 'couple-1'));

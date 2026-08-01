@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../common/providers.dart';
-import '../feed/models/sample_thread.dart';
 import 'models/couple.dart';
 
 /// Shown where a name is required but none is known.
@@ -58,10 +57,11 @@ final coupleTitleProvider = Provider<String>((ref) {
 /// Resolves any uid to a display name, for surfaces that hold a uid rather
 /// than a role — a feed item's `senderId`, say.
 ///
-/// The `mockMembers` fallback keeps the sample thread readable while its items
-/// are still mock data. **Delete the mock branch in P2-12**, together with
-/// `sampleThread()`; it is here to stop the feed reading "Your person" for
-/// every message, not because mock identity is wanted.
+/// The `mockMembers` fallback that used to sit at the end of this is gone with
+/// the sample thread (**P2-12**). Every uid the feed can now show belongs to
+/// one of the couple's two members, so a name that does not resolve means a
+/// pre-**M-02** couple with no `memberNames`, and the neutral label is the
+/// honest answer rather than a stand-in identity.
 final memberNameResolverProvider = Provider<String Function(String)>((ref) {
   final couple = ref.watch(coupleProvider).valueOrNull;
   final myUid = ref.watch(currentUserProvider).valueOrNull?.uid;
@@ -70,9 +70,7 @@ final memberNameResolverProvider = Provider<String Function(String)>((ref) {
   return (String uid) {
     if (uid == myUid) return myName;
     final real = couple?.memberNames[uid]?.trim();
-    if (real != null && real.isNotEmpty) return real;
-    // P2-12: remove with the mock thread.
-    return mockMembers[uid]?.name ?? unknownMemberName;
+    return (real == null || real.isEmpty) ? unknownMemberName : real;
   };
 });
 

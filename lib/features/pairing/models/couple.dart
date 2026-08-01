@@ -9,6 +9,10 @@ class Couple {
     required this.memberNames,
     this.coupleName,
     this.streakCount = 0,
+    this.moodEmoji,
+    this.moodText,
+    this.moodBy,
+    this.moodUpdatedAt,
   });
 
   final String id;
@@ -27,6 +31,18 @@ class Couple {
   final String? coupleName;
 
   final int streakCount;
+
+  /// The current ambient mood, written by the `setMood` callable (**P2-12**).
+  ///
+  /// The live value, distinct from the `status` items in the thread: those are
+  /// the scrollback, this is what is true now. Null until someone sets one.
+  final String? moodEmoji;
+  final String? moodText;
+
+  /// Whose mood it is. Both people set moods into the same couple document,
+  /// so without this the ambient line cannot say who it belongs to.
+  final String? moodBy;
+  final DateTime? moodUpdatedAt;
 
   /// The other member, or null on a malformed couple.
   String? partnerOf(String uid) {
@@ -49,6 +65,17 @@ class Couple {
           const {},
       coupleName: data['coupleName'] as String?,
       streakCount: (data['streakCount'] as num?)?.toInt() ?? 0,
+      moodEmoji: data['moodEmoji'] as String?,
+      moodText: data['moodText'] as String?,
+      moodBy: data['moodBy'] as String?,
+      moodUpdatedAt: _readTime(data['moodUpdatedAt']),
     );
   }
+}
+
+/// Accepts a `DateTime` or a Firestore `Timestamp`, like the feed mapper's own.
+DateTime? _readTime(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  return (value as dynamic).toDate() as DateTime;
 }

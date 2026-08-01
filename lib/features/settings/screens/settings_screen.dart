@@ -7,7 +7,7 @@ import '../../../common/providers.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
 import '../../../theme/theme_glyphs.dart';
-import '../../feed/models/sample_thread.dart';
+import '../../feed/feed_emoji.dart';
 import '../../pairing/couple_names.dart';
 import '../../feed/widgets/feed_header.dart';
 import '../../feed/widgets/reaction_tray.dart';

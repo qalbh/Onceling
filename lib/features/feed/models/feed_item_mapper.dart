@@ -1,5 +1,7 @@
 import 'dart:developer' as developer;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'feed_item.dart';
 
 /// Thrown when a document's `type` is absent or not one of the five known
@@ -62,7 +64,13 @@ const _stateOpened = 'opened';
 /// [id] is the document id — it is the key, not a field, so it arrives
 /// separately and is never written back by [toFirestore].
 FeedItem fromFirestore(String id, Map<String, dynamic> data) {
-  final createdAt = _readTime(data['createdAt']);
+  // An unresolved `createdAt` is our own optimistic local echo: the snapshot
+  // Firestore emits before the server has acked the write, where the pending
+  // `serverTimestamp()` still reads as null. `now()` is the same estimate the
+  // native SDKs' `ServerTimestampBehavior.estimate` supplies, and the real
+  // value arrives a moment later. Not an error case — every message you send
+  // passes through it.
+  final createdAt = _readTime(data['createdAt']) ?? DateTime.now();
   final senderId = data['senderId'] as String? ?? '';
   final reactions = _readReactions(data['reactions']);
 
@@ -70,14 +78,14 @@ FeedItem fromFirestore(String id, Map<String, dynamic> data) {
     _typeText => TextMessage(
       id: id,
       senderId: senderId,
-      createdAt: createdAt!,
+      createdAt: createdAt,
       text: data['body'] as String? ?? '',
       reactions: reactions,
     ),
     _typePhoto => PhotoMessage(
       id: id,
       senderId: senderId,
-      createdAt: createdAt!,
+      createdAt: createdAt,
       mediaUrl: data['mediaUrl'] as String?,
       caption: data['caption'] as String?,
       reactions: reactions,
@@ -85,7 +93,7 @@ FeedItem fromFirestore(String id, Map<String, dynamic> data) {
     _typeEmoji => EmojiMessage(
       id: id,
       senderId: senderId,
-      createdAt: createdAt!,
+      createdAt: createdAt,
       emoji: data['emoji'] as String? ?? '',
       count: (data['count'] as num?)?.toInt() ?? 1,
       reactions: reactions,
@@ -93,7 +101,7 @@ FeedItem fromFirestore(String id, Map<String, dynamic> data) {
     _typeStatus => StatusNote(
       id: id,
       senderId: senderId,
-      createdAt: createdAt!,
+      createdAt: createdAt,
       text: data['body'] as String? ?? '',
       icon: data['emoji'] as String?,
       reactions: reactions,
@@ -101,7 +109,7 @@ FeedItem fromFirestore(String id, Map<String, dynamic> data) {
     _typeSecret => SecretMessage(
       id: id,
       senderId: senderId,
-      createdAt: createdAt!,
+      createdAt: createdAt,
       duration: _readDuration(id, data['revealDurationSeconds']),
       secretState: _readSecretState(id, data['secretState']),
       openingStartedAt: _readTime(data['openingStartedAt']),
@@ -168,6 +176,55 @@ Map<String, dynamic> toFirestore(FeedItem item) {
         'openedAt': openedAt,
         'heldFullCountdown': heldFullCountdown,
       },
+  };
+}
+
+/// The document for a **new** item, ready to hand to Firestore (**P2-12**).
+///
+/// Not the same thing as [toFirestore], and the two differences are both
+/// forced by the P2-10 rules rather than by taste:
+///
+/// 1. **`createdAt` becomes a server timestamp.** `allow create` requires
+///    `createdAt == request.time`, so a client-chosen time is rejected outright.
+///    The model's own `createdAt` is a placeholder the writer never keeps.
+/// 2. **Null-valued keys are dropped.** Rules validate `keys().hasOnly(...)`
+///    per type, and in Firestore an explicit null is a *present* key. Writing
+///    `openingStartedAt: null` on a secret would therefore be rejected — that
+///    field belongs to **P3-01**'s `sealed -> opening` transition and is not in
+///    the permitted create set at all. Same for `revealDurationSeconds` on an
+///    `untilClosed` secret, which must be absent rather than null.
+///
+/// Reading is unaffected: [fromFirestore] treats an absent key and a null one
+/// identically for every optional field, so a stripped document round-trips.
+Map<String, dynamic> itemCreatePayload(
+  FeedItem item, {
+  required String coupleId,
+}) {
+  return {
+    for (final entry in toFirestore(item).entries)
+      if (entry.value != null) entry.key: entry.value,
+    'coupleId': coupleId,
+    'createdAt': FieldValue.serverTimestamp(),
+  };
+}
+
+/// The `secretBodies/{itemId}` document that accompanies a secret.
+///
+/// All four fields are required by the rules, and three of them are recorded
+/// on **P2-12** as load-bearing: `coupleId` is how **P2-36**'s sweep finds a
+/// body whose item is already gone, `senderId` binds creation to the sender
+/// without a `get()` on an item that may not be committed yet, and `body` is
+/// the payload. `createdAt` is the same server-time check as above.
+Map<String, dynamic> secretBodyPayload({
+  required String coupleId,
+  required String senderId,
+  required String body,
+}) {
+  return {
+    'coupleId': coupleId,
+    'senderId': senderId,
+    'body': body,
+    'createdAt': FieldValue.serverTimestamp(),
   };
 }
 

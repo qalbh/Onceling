@@ -34,23 +34,32 @@ class SecretRevealScreen extends StatefulWidget {
   /// Fetched from `secretBodies/{itemId}` at reveal time — it is deliberately
   /// not on [SecretMessage], so it can be hard deleted server-side (**P3-01**)
   /// while the tombstone survives.
-  final String body;
+  ///
+  /// **Null means the body could not be read, and today it is always null.**
+  /// The rules grant `get` on a body only while its item is in `opening`, and
+  /// nothing moves an item there yet: **P3-01** owns the `sealed -> opening`
+  /// transition. Rather than fake a reveal the server has not authorised, the
+  /// screen says so and leaves the secret sealed.
+  final String? body;
 
   @override
   State<SecretRevealScreen> createState() => _SecretRevealScreenState();
 }
 
-enum _Stage { heldBreath, tearing, reading }
+enum _Stage { heldBreath, tearing, reading, unavailable }
 
 class _SecretRevealScreenState extends State<SecretRevealScreen>
     with TickerProviderStateMixin {
   static const _heldBreath = Duration(milliseconds: 1400);
   static const _tearDuration = Duration(milliseconds: 900);
 
-  late final AnimationController _tear = AnimationController(
-    vsync: this,
-    duration: _tearDuration,
-  );
+  /// Created eagerly in [initState], including on the path that never tears.
+  ///
+  /// It used to be a `late final` with an inline initialiser, which meant that
+  /// on the `unavailable` path — where nothing ever reads it — the field was
+  /// first constructed inside [dispose]. Creating a `Ticker` there looks up
+  /// `TickerMode` on an element that is already deactivated, which throws.
+  late final AnimationController _tear;
 
   /// Empties over the reading window; drives the ring and the auto-close.
   AnimationController? _countdown;
@@ -61,6 +70,15 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
   @override
   void initState() {
     super.initState();
+    _tear = AnimationController(vsync: this, duration: _tearDuration);
+
+    // No body, no reveal — and no held breath either. Playing the build-up
+    // before admitting the secret cannot open would be theatre at the reader's
+    // expense; say it immediately instead.
+    if (widget.body == null) {
+      _stage = _Stage.unavailable;
+      return;
+    }
     _stageTimer = Timer(_heldBreath, _startTear);
   }
 
@@ -111,6 +129,7 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
                 child: switch (_stage) {
                   _Stage.heldBreath || _Stage.tearing => _sealed(),
                   _Stage.reading => _reading(),
+                  _Stage.unavailable => _unavailable(),
                 },
               ),
             ),
@@ -163,6 +182,65 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
     );
   }
 
+  /// The secret is real and still sealed, and this build cannot open it.
+  ///
+  /// Says exactly that. The alternative — an error, or a reveal of nothing —
+  /// would both read as the secret having been lost, which is the one thing
+  /// that has not happened: the body is on the server, untouched, waiting for
+  /// **P3-01** to authorise the reveal.
+  Widget _unavailable() {
+    final theme = Theme.of(context);
+    final palette = context.palette;
+
+    return SingleChildScrollView(
+      key: const ValueKey('unavailable'),
+      padding: const EdgeInsets.fromLTRB(28, 80, 28, 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _SealedCard(fromName: widget.senderName),
+          const SizedBox(height: 26),
+          Text(
+            'Not yet',
+            textAlign: TextAlign.center,
+            style: AppTheme.wordmark(
+              context,
+              24,
+            ).copyWith(color: palette.secretPaper),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Opening a secret is not finished yet. It is still sealed, and '
+            'still theirs to you — nothing has been read and nothing is lost.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.headlineSmall!.copyWith(
+              height: 1.4,
+              color: palette.onScrimFaint,
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            height: 58,
+            child: FilledButton(
+              // Pops with no result: nothing was opened, so there is nothing
+              // to tell the sender.
+              onPressed: () => Navigator.of(context).pop(),
+              style: FilledButton.styleFrom(
+                backgroundColor: palette.onScrim.withValues(alpha: 0.14),
+                foregroundColor: palette.secretPaper,
+                elevation: 0,
+                shape: const StadiumBorder(),
+                textStyle: AppTheme.bold(theme.textTheme.headlineLarge!),
+              ),
+              child: const Text('Leave it sealed'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Stage 11 — the words, then the way out.
   Widget _reading() {
     final theme = Theme.of(context);
@@ -178,7 +256,9 @@ class _SecretRevealScreenState extends State<SecretRevealScreen>
           Flexible(
             child: SingleChildScrollView(
               child: Text(
-                widget.body,
+                // Non-null here by construction: a null body never reaches
+                // the reading stage, it lands on `_Stage.unavailable`.
+                widget.body!,
                 style: AppTheme.wordmark(
                   context,
                   26,

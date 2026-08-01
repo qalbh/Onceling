@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../features/auth/auth_service.dart';
 import '../features/auth/models/user_profile.dart';
 import '../features/auth/profile_service.dart';
+import '../features/mood/mood_service.dart';
 import '../features/pairing/models/pairing_request.dart';
 import '../features/pairing/pairing_service.dart';
 
@@ -41,6 +42,11 @@ final functionsProvider = Provider<FirebaseFunctions>(
 /// Client edge of the pairing callables.
 final pairingServiceProvider = Provider<PairingService>(
   (ref) => FirebaseFunctionsPairingService(ref.watch(functionsProvider)),
+);
+
+/// Client edge of the mood callable (**P2-12**).
+final moodServiceProvider = Provider<MoodService>(
+  (ref) => FirebaseFunctionsMoodService(ref.watch(functionsProvider)),
 );
 
 /// Client edge of the server-side profile write (**P2-30**, **P2-35**).

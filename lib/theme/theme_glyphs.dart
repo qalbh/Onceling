@@ -24,6 +24,7 @@ class ThemeGlyphs extends ThemeExtension<ThemeGlyphs> {
     required this.traySlot,
     required this.revealSeal,
     required this.pickerTile,
+    required this.emptyState,
   });
 
   /// Decorative heart under the sign-in actions.
@@ -59,6 +60,9 @@ class ThemeGlyphs extends ThemeExtension<ThemeGlyphs> {
   /// Emoji in the reaction picker grid.
   final double pickerTile;
 
+  /// Decorative glyph above an empty-state message (**P2-15**).
+  final double emptyState;
+
   @override
   ThemeGlyphs copyWith({
     double? heart,
@@ -72,6 +76,7 @@ class ThemeGlyphs extends ThemeExtension<ThemeGlyphs> {
     double? traySlot,
     double? revealSeal,
     double? pickerTile,
+    double? emptyState,
   }) {
     return ThemeGlyphs(
       heart: heart ?? this.heart,
@@ -85,6 +90,7 @@ class ThemeGlyphs extends ThemeExtension<ThemeGlyphs> {
       traySlot: traySlot ?? this.traySlot,
       revealSeal: revealSeal ?? this.revealSeal,
       pickerTile: pickerTile ?? this.pickerTile,
+      emptyState: emptyState ?? this.emptyState,
     );
   }
 
@@ -103,6 +109,7 @@ class ThemeGlyphs extends ThemeExtension<ThemeGlyphs> {
       traySlot: lerpDouble(traySlot, other.traySlot, t),
       revealSeal: lerpDouble(revealSeal, other.revealSeal, t),
       pickerTile: lerpDouble(pickerTile, other.pickerTile, t),
+      emptyState: lerpDouble(emptyState, other.emptyState, t),
     );
   }
 

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_glyphs.dart';
-import '../models/sample_thread.dart';
+import '../feed_emoji.dart';
 
 /// "Say it back" — the sheet for reacting to a specific message.
 class ReactionTray extends StatelessWidget {

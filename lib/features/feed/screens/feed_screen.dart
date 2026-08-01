@@ -3,20 +3,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../common/app_router.dart';
-import '../../../common/time_format.dart';
+import '../../../common/app_toast.dart';
+import '../../../common/providers.dart';
 import '../../../theme/theme_colors.dart';
 import '../../compose/compose_sheet.dart';
 import '../../mood/mood_sheet.dart';
-import '../../secret/screens/secret_reveal_screen.dart';
-import '../../secret/widgets/secret_opened_dialog.dart';
-import '../../../common/providers.dart';
 import '../../pairing/couple_names.dart';
+import '../../secret/screens/secret_reveal_screen.dart';
+import '../feed_emoji.dart';
+import '../feed_providers.dart';
 import '../models/feed_item.dart';
-import '../models/sample_thread.dart';
 import '../widgets/emoji_burst.dart';
 import '../widgets/emoji_tray.dart';
 import '../widgets/feed_header.dart';
 import '../widgets/feed_item_view.dart';
+import '../widgets/feed_states.dart';
 import '../widgets/reaction_tray.dart';
 
 /// The shared thread, rendered from the signed-in user's side.
@@ -25,6 +26,10 @@ import '../widgets/reaction_tray.dart';
 /// A long-press used to swap perspective, which was how both mock layouts were
 /// reachable before auth existed; it let a real user become their partner, so
 /// it is gone. Seeing the other side now requires being the other person.
+///
+/// Since **P2-12** the thread is a live Firestore listener rather than local
+/// state. Nothing here mutates a list: a send is a write, and the item appears
+/// because the listener saw it — on both devices, by the same route.
 class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
 
@@ -40,20 +45,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   /// stream resolves, which the gate normally prevents from being visible.
   String get _viewerId => ref.read(currentUserProvider).valueOrNull?.uid ?? '';
 
-  late List<FeedItem> _items = sampleThread();
-
-  /// Stands in for the `secretBodies` collection until **P3-01**.
-  final Map<String, String> _secretBodies = {...sampleSecretBodies};
-
-  /// Client-side id for an item that has not been written yet. Firestore
-  /// assigns the real one on write (**P2-12**).
-  String _newItemId() => 'local-${DateTime.now().microsecondsSinceEpoch}';
-
   @override
   void initState() {
     super.initState();
-    // Threads open at the newest message.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToEnd());
+    _scrollController.addListener(_maybeLoadMore);
   }
 
   @override
@@ -62,174 +57,136 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     super.dispose();
   }
 
-  void _jumpToEnd() {
+  /// Grows the window when the reader nears the old end of the thread.
+  ///
+  /// The list is `reverse: true`, so `maxScrollExtent` is the *oldest*
+  /// message, not the newest — scrolling up is scrolling towards the limit.
+  /// The 400px margin starts the next page before the reader hits the end, so
+  /// paging is invisible when it keeps up and merely slow when it does not.
+  void _maybeLoadMore() {
+    // The listener can fire while the tree is being torn down — pushing the
+    // reveal route re-measures the list. `ref` on a deactivated element throws
+    // "looking up a deactivated widget's ancestor", so check before reading.
+    if (!mounted) return;
     if (!_scrollController.hasClients) return;
-    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    final position = _scrollController.position;
+    if (position.pixels < position.maxScrollExtent - 400) return;
+    if (ref.read(feedProvider).valueOrNull?.hasMore != true) return;
+    ref.read(feedWindowProvider.notifier).loadMore();
   }
 
-  Future<void> _scrollToEnd() async {
-    if (!_scrollController.hasClients) return;
-    await _scrollController.animateTo(
-      _scrollController.position.maxScrollExtent,
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOutCubic,
-    );
+  /// Runs [write] and reports a failure rather than swallowing it.
+  ///
+  /// Every write here can be refused — rules deny a mis-scoped item, and the
+  /// network can drop. A send that silently does nothing is the worst of the
+  /// available failures on a thread two people trust.
+  Future<void> _send(Future<void> Function() write) async {
+    try {
+      await write();
+    } catch (_) {
+      if (!mounted) return;
+      showAppToast(context, 'That did not send. Try again.');
+    }
   }
 
   Future<void> _compose() async {
     final result = await ComposeSheet.show(context);
     if (result == null || !mounted) return;
 
-    setState(() {
-      final id = _newItemId();
-      _items = [
-        ..._items,
-        if (result.secretDuration case final duration?)
-          SecretMessage(
-            id: id,
-            senderId: _viewerId,
-            createdAt: DateTime.now(),
-            duration: duration,
-          )
-        else
-          TextMessage(
-            id: id,
-            senderId: _viewerId,
-            createdAt: DateTime.now(),
-            text: result.text,
-          ),
-      ];
-      // Bodies live apart from the tombstone; this stands in for the
-      // `secretBodies` write until **P3-01**.
-      if (result.isSecret) _secretBodies[id] = result.text;
+    final me = feedWriteIdentity(ref);
+    if (me == null) return;
+    final service = ref.read(feedServiceProvider);
+
+    await _send(() {
+      if (result.secretDuration case final duration?) {
+        return service.sendSecret(
+          coupleId: me.coupleId,
+          senderId: me.senderId,
+          text: result.text,
+          duration: duration,
+        );
+      }
+      return service.sendText(
+        coupleId: me.coupleId,
+        senderId: me.senderId,
+        text: result.text,
+      );
     });
-    await _scrollToEnd();
   }
 
-  void _sendEmoji(String emoji, Offset origin) {
+  Future<void> _sendEmoji(String emoji, Offset origin) async {
+    // The burst is local celebration, not state: it fires immediately whether
+    // or not the write lands, because the thread's own copy arrives through
+    // the listener a moment later.
     _burstKey.currentState?.fire(emoji, origin);
-    setState(() {
-      _items = [
-        ..._items,
-        EmojiMessage(
-          id: _newItemId(),
-          senderId: _viewerId,
-          createdAt: DateTime.now(),
-          emoji: emoji,
-        ),
-      ];
-    });
-    _scrollToEnd();
+
+    final me = feedWriteIdentity(ref);
+    if (me == null) return;
+
+    await _send(
+      () => ref
+          .read(feedServiceProvider)
+          .sendEmoji(
+            coupleId: me.coupleId,
+            senderId: me.senderId,
+            emoji: emoji,
+          ),
+    );
   }
 
-  /// Runs the full-screen reveal, then burns the secret for both people and
-  /// tells the sender it was read.
-  Future<void> _openSecret(int index) async {
-    final secret = _items[index];
-    if (secret is! SecretMessage || secret.isOpened) return;
+  /// Opens the reveal, which currently only reports that it cannot open.
+  ///
+  /// No body is fetched: `secretBodies` is readable only while the item is in
+  /// `opening`, and nothing moves it there yet — **P3-01** owns the
+  /// `sealed -> opening` transition. Rather than pretend, the reveal screen
+  /// says so, and the secret stays sealed for whenever P3-01 lands.
+  Future<void> _openSecret(SecretMessage secret) async {
+    if (secret.isOpened) return;
 
-    final result = await context.push<SecretRevealResult>(
+    await context.push<SecretRevealResult>(
       AppRoutes.secretReveal,
       extra: SecretRevealArgs(
         secret: secret,
         senderName: ref.read(memberNameResolverProvider)(secret.senderId),
-        body: _secretBodies[secret.id] ?? '',
+        body: null,
       ),
-    );
-    if (result == null || !mounted) return;
-
-    // Fixed while the thread is mock data. **P3-01** replaces this with the
-    // server timestamp the deletion Function writes.
-    final openedAt = DateTime(2026, 7, 30, 9, 31);
-    setState(() {
-      _items = [..._items];
-      // Rebuilt rather than mutated: opening is a server operation, so the
-      // client has no `markOpened()` to call.
-      _items[index] = SecretMessage(
-        id: secret.id,
-        senderId: secret.senderId,
-        createdAt: secret.createdAt,
-        duration: secret.duration,
-        secretState: SecretState.opened,
-        openedAt: openedAt,
-        heldFullCountdown: result.heldFullCountdown,
-        reactions: secret.reactions,
-      );
-      _secretBodies.remove(secret.id);
-    });
-
-    // The sender's confirmation. Both sides are on this one device, so it is
-    // shown here directly rather than pushed from a server.
-    await SecretOpenedDialog.show(
-      context,
-      readerName: ref.read(memberNameResolverProvider)(_viewerId),
-      openedAt: formatClockTime(openedAt),
-      heldFullCountdown: result.heldFullCountdown,
     );
   }
 
   Future<void> _setMood() async {
     final mood = await MoodSheet.show(
       context,
-      partnerName: ref.read(memberNameResolverProvider)(
-        mockPartnerOf(_viewerId),
-      ),
+      partnerName: ref.read(partnerNameProvider),
     );
     if (mood == null || !mounted) return;
 
-    setState(() {
-      _items = [
-        for (final item in _items)
-          if (item is StatusNote)
-            StatusNote(
-              id: item.id,
-              senderId: item.senderId,
-              createdAt: item.createdAt,
-              text: mood.note.isEmpty ? 'set a mood' : mood.note,
-              icon: mood.emoji,
-              reactions: item.reactions,
-            )
-          else
-            item,
-      ];
-    });
+    await _send(
+      () => ref
+          .read(moodServiceProvider)
+          .setMood(emoji: mood.emoji, note: mood.note),
+    );
   }
 
-  Future<void> _react(int index) async {
+  Future<void> _react(FeedItem item) async {
     final emoji = await ReactionTray.show(context);
     if (emoji == null || !mounted) return;
 
-    setState(() {
-      _items = [..._items];
-      final target = _items[index];
-      // Reactions are a map keyed by uid, so reacting twice replaces rather
-      // than appends, and every item type carries them (brief §9).
-      final reactions = {...target.reactions, _viewerId: emoji};
-      _items[index] = switch (target) {
-        TextMessage(:final text) => TextMessage(
-          id: target.id,
-          senderId: target.senderId,
-          createdAt: target.createdAt,
-          text: text,
-          reactions: reactions,
-        ),
-        PhotoMessage(:final mediaUrl, :final caption) => PhotoMessage(
-          id: target.id,
-          senderId: target.senderId,
-          createdAt: target.createdAt,
-          mediaUrl: mediaUrl,
-          caption: caption,
-          reactions: reactions,
-        ),
-        final other => other,
-      };
-    });
+    final me = feedWriteIdentity(ref);
+    if (me == null) return;
+
+    await _send(
+      () => ref
+          .read(feedServiceProvider)
+          .react(itemId: item.id, senderId: me.senderId, emoji: emoji),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     // Watched, not read: the viewer and their favourites both come from it.
     final profile = ref.watch(currentUserProvider).valueOrNull;
+    final feed = ref.watch(feedProvider);
+
     return Scaffold(
       backgroundColor: context.palette.feedBackground,
       body: Stack(
@@ -240,6 +197,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 bottom: false,
                 child: FeedHeader(
                   title: ref.watch(coupleTitleProvider),
+                  // M-10: still mock. `anniversaryDate` is an open owner
+                  // decision, so this cannot be computed honestly yet.
                   subtitle: '994 days · since 4 November 2023',
                   streak: 47,
                   viewerInitial: ref.watch(memberInitialResolverProvider)(
@@ -248,27 +207,35 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   onOpenSettings: () => context.push(AppRoutes.settings),
                 ),
               ),
+              // Only the thread swaps between the three states. The header
+              // above and the tray below never depend on `items`.
               Expanded(
-                child: ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.only(top: 8, bottom: 16),
-                  itemCount: _items.length,
-                  itemBuilder: (context, index) => FeedItemView(
-                    item: _items[index],
-                    viewerId: _viewerId,
-                    onLongPress: () => _react(index),
-                    onOpenSecret: () => _openSecret(index),
-                    onTapStatus: _setMood,
-                  ),
+                child: feed.when(
+                  // Paging back is a reload of the same provider. Without
+                  // this the thread would blink through the loading state
+                  // every time the reader reached the top.
+                  skipLoadingOnReload: true,
+                  data: (page) => page.items.isEmpty
+                      ? const FeedEmpty()
+                      : _Thread(
+                          items: page.items,
+                          viewerId: _viewerId,
+                          controller: _scrollController,
+                          onReact: _react,
+                          onOpenSecret: _openSecret,
+                          onTapStatus: _setMood,
+                        ),
+                  loading: () => const FeedLoading(),
+                  error: (_, _) => FeedError(onRetry: () => retryFeed(ref)),
                 ),
               ),
               SafeArea(
                 top: false,
                 child: EmojiTray(
-                  // The reader's own favourites, from their profile — this
-                  // used to be picked by mock uid. `favoriteEmojis` is written
-                  // with eight defaults by ensureUserProfile, so the fallback
-                  // is only for the pre-resolve instant.
+                  // The reader's own favourites, from their profile.
+                  // `favoriteEmojis` is written with eight defaults by
+                  // ensureUserProfile, so the fallback is only for the
+                  // pre-resolve instant.
                   emoji: profile?.favoriteEmojis.isNotEmpty == true
                       ? profile!.favoriteEmojis
                       : defaultTrayEmoji,
@@ -282,6 +249,54 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
           Positioned.fill(child: EmojiBurstLayer(key: _burstKey)),
         ],
       ),
+    );
+  }
+}
+
+/// The messages themselves.
+///
+/// `reverse: true` rather than a scroll-to-bottom on load. It makes offset 0
+/// the newest message, so the thread opens where it should with no post-frame
+/// jump, and appending older pages at the far end does not shift what is on
+/// screen. [items] arrives newest-first from the query, which is exactly the
+/// order a reversed list wants.
+class _Thread extends StatelessWidget {
+  const _Thread({
+    required this.items,
+    required this.viewerId,
+    required this.controller,
+    required this.onReact,
+    required this.onOpenSecret,
+    required this.onTapStatus,
+  });
+
+  final List<FeedItem> items;
+  final String viewerId;
+  final ScrollController controller;
+  final ValueChanged<FeedItem> onReact;
+  final ValueChanged<SecretMessage> onOpenSecret;
+  final VoidCallback onTapStatus;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      controller: controller,
+      reverse: true,
+      padding: const EdgeInsets.only(top: 16, bottom: 8),
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return FeedItemView(
+          // Keyed by document id so a live update rebuilds the right row
+          // rather than the row that happens to sit at that index.
+          key: ValueKey(item.id),
+          item: item,
+          viewerId: viewerId,
+          onLongPress: () => onReact(item),
+          onOpenSecret: item is SecretMessage ? () => onOpenSecret(item) : null,
+          onTapStatus: onTapStatus,
+        );
+      },
     );
   }
 }
