@@ -216,7 +216,7 @@ there is data.
 - [x] **P2-09c** `cancelPairingRequest(requestId)` callable — sender-initiated,
       supports **P2-24**.
       *Only `fromUid`, only while pending; sets status to 'cancelled'.*
-- [ ] **P2-10** Security Rules — all reads/writes scoped to the requester's `coupleId`.
+- [x] **P2-10** Security Rules — all reads/writes scoped to the requester's `coupleId`.
       `pairingRequests` and `pairingCodes` both need rules in the same change that
       introduces them. The `users` rule must allow a user to create and update their
       own document while forbidding any client write to `coupleId` — that field is set
@@ -227,9 +227,33 @@ there is data.
       differs. On create it must be null. A flat deny blocks legitimate profile edits
       that happen to include the field, and `displayName` updates silently stop
       working.
-- [ ] **P2-11** Security Rules unit tests — negative cases on every collection: user A
+      *`items` and `secretBodies` landed here too, before **P2-12** reads them, so the
+      feed is built against a closed collection rather than bolted shut afterwards.*
+      *Membership is a `get()` on the caller's own profile — one read per request,
+      cached, so a paginated page costs one and not one per row. A custom auth claim
+      would cost nothing but goes stale until the token refreshes, and a stale copy of
+      the field that decides who reads a couple's messages is the wrong trade.*
+      *`items` allows `list` deliberately: **P2-12** needs an ordered, paginated, live
+      query, and a flat deny would force reads by id, which a feed cannot do. Firestore
+      fails the whole query if any returned row fails the rule, so an unfiltered or
+      wrongly-scoped query is rejected wholesale.*
+      *`update` is reactions-only, and within reactions the caller's own key only —
+      both halves are expressible, with `diff().affectedKeys()` on the document and
+      `MapDiff.affectedKeys()` on the map. Without the second, either member could
+      rewrite or clear the other's reaction. `delete` is false: no delete-a-message
+      feature exists, brief §7 puts editing out of V1, and both real deletion paths
+      (**P3-01**, **P2-36**'s sweep) are server-side.*
+      *Auditor scored 4/5. It found two real holes, both caught by probe rather than
+      by reading and both fixed before re-scoring: `openedAt` was permitted but never
+      type-checked, and type-specific fields were validated as a union, so a `text`
+      item could arrive carrying `secretState`.*
+- [x] **P2-11** Security Rules unit tests — negative cases on every collection: user A
       cannot read couple B's items, cannot read another user's document in
       `pairingCodes`, and cannot read another user's pending `pairingRequests`.
+      *`rules-tests/items_rules.test.mjs`, own project namespace. Negatives and
+      positives both: an over-strict rule passes every negative test and breaks the
+      app, so the scoped/ordered/paginated query **P2-12** needs is asserted to
+      succeed alongside every denial.*
       A signed-in user writing `coupleId` to their own document must be **rejected**,
       not merely absent from the happy path. Same for clearing it — an unrestricted
       clear lets a client orphan a couple, leaving one partner paired to nobody and
@@ -238,12 +262,19 @@ there is data.
       their own `displayName` while `coupleId` is present and unchanged must succeed.
       Without it, an over-strict rule passes the negative tests and breaks the app.
 - [ ] **P2-12** Feed persistence with a real-time listener and pagination
-      **Must write `coupleId` onto `secretBodies` documents.** Bodies are keyed by item
-      id, so items are the only handle on them. **P3-01** deletes bodies while keeping
-      items, and **P2-36**'s sweep deletes items — either direction can orphan the
-      other. The sweep now has a second pass by `coupleId`, which only works if the
-      field is there. Without it, "destroy everything" means "destroy what we can still
-      find", and brief §10's promise is not true.
+      **`secretBodies` documents must carry `coupleId`, `senderId` and `body`.** All
+      three are load-bearing and the write breaks without any of them:
+      - `coupleId` — **P2-36**'s sweep finds orphans by couple. Bodies are keyed by
+        item id, so items are otherwise the only handle, and either side can be
+        deleted first. Without it, "destroy everything" means "destroy what we can
+        still find" and brief §10's promise is not true.
+      - `senderId` — **P2-10**'s rules bind creation to the sender and deny the sender
+        reading their own body back, both without a `get()` on an item that may not be
+        committed yet.
+      - `body` — the payload, bounded at 2000 characters by the rules.
+      *The rules reject a body missing any of them, so this is a hard requirement,
+      not a nicety. Items must also carry only the keys their `type` permits: the
+      validator is per-type, not a union.*
 - [ ] **P2-13** Photo upload to Cloud Storage. *Enable the Storage emulator first —
       until it is on, Functions calls to Cloud Storage hit the real dev bucket.*
 - [x] **P2-14** Migrate named routes → `go_router` with a single auth redirect
@@ -455,7 +486,23 @@ there is data.
 ## Phase 3 — Functions, push, onboarding
 
 - [ ] **P3-01** Secret deletion Function — hard delete `secretBodies`, keep the
-      tombstone in `items`
+      tombstone in `items`. **Owns two transitions, not one**, since **P2-10** gave
+      `secretState` a third value:
+      - `sealed -> opening`, stamping `openingStartedAt` and starting the read window.
+      - `opening -> opened`, deleting the body and keeping the tombstone.
+      *The second must be idempotent, and must fire even if the recipient closes the
+      app mid-reveal. A client cannot drive it: item `update` is restricted to the
+      caller's own reaction key, so nothing on the device can set `secretState`.*
+      *The expired-window case has no owner yet: a secret left in `opening` whose
+      window has passed is stored, unreadable by anyone, and undeleted. Neither
+      transition fires, because the recipient never finished. Either the
+      `opening -> opened` transition must be reachable without the client — a
+      scheduled pass, or the same schedule as **P2-28** — or the sweep must collect
+      them. Decide when P3-01 is built; do not leave it to be discovered.*
+      *`untilClosed` secrets are the sharp end of this: they carry no
+      `revealDurationSeconds`, so the rule has no clock to bound them with and gates
+      on state alone. Until P3-01 exists they stay readable for as long as they stay
+      `opening`.*
 - [ ] **P3-02** Streak calculation Function *(needs Q3)*
 - [ ] **P3-03** Milestone triggers — day 100, 365, 500, 1000 *(needs Q2)*
 - [ ] **P3-04** FCM fan-out — secret payloads carry no body and no preview

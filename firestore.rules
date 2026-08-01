@@ -6,8 +6,9 @@ rules_version = '2';
 // reachable; everything else falls through to the deny-all at the bottom.
 //
 // Collections so far: users (P2-30), pairingCodes (P2-08), pairingRequests
-// (P2-09), rateLimits (P2-27), couples (P2-09b). items and secretBodies
-// arrive with their own rules at P2-12.
+// (P2-09), rateLimits (P2-27), couples (P2-09b), items and secretBodies
+// (P2-10). Rules land before the feed reads them, so P2-12 is built against a
+// closed collection rather than bolting one shut afterwards.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -47,14 +48,157 @@ service cloud.firestore {
              && data.createdAt is timestamp;
     }
 
+    // The caller's couple, read from their own profile.
+    //
+    // COST: one document read per request. Rule `get()` results are cached for
+    // the duration of a single request, so a 30-item page costs one read, not
+    // thirty. That is the cheapest correct shape available today.
+    //
+    // The cheaper alternative is a custom auth claim carrying coupleId, which
+    // costs nothing to evaluate — but a claim is stale until the token
+    // refreshes, so a freshly-paired or freshly-unpaired user would keep the
+    // old access for up to an hour. For a field whose whole job is to be
+    // authoritative about who may read a couple's messages, a stale copy is
+    // the wrong trade. Revisit if read volume makes it matter.
+    function myCoupleId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid))
+             .data.coupleId;
+    }
+
+    // Membership, by comparing the document's couple to the caller's own.
+    // A null coupleId matches nothing: an unpaired user is a member of no
+    // couple, and `null == null` must never grant access to unscoped rows.
+    function isCoupleMember(coupleId) {
+      return isSignedIn()
+             && coupleId is string
+             && myCoupleId() == coupleId;
+    }
+
+    /// The five fields every item carries, whatever its type.
+    function baseItemKeys() {
+      return ['coupleId', 'senderId', 'type', 'createdAt', 'reactions'];
+    }
+
+    /// The exact key set a given type may carry.
+    ///
+    /// Per-type rather than a union of everything: a union let a `text` item
+    /// arrive carrying `secretState`, which the P2-06 mapper would silently
+    /// ignore while the document claimed to be something it is not. Caught by
+    /// probe, not by reading.
+    function itemKeysFor(type) {
+      return type == 'text'
+               ? baseItemKeys().concat(['body'])
+               : type == 'photo'
+                 ? baseItemKeys().concat(['mediaUrl', 'caption'])
+                 : type == 'emoji'
+                   ? baseItemKeys().concat(['emoji', 'count'])
+                   : type == 'status'
+                     ? baseItemKeys().concat(['body', 'emoji'])
+                     : baseItemKeys().concat([
+                         'secretState', 'revealDurationSeconds',
+                         'openedAt', 'heldFullCountdown'
+                       ]);
+    }
+
+    /// Every field a thread item may carry, typed and bounded.
+    ///
+    /// This content renders on the other person's screen, so every string is
+    /// capped and every optional field is type-checked.
+    function isWellFormedItem(data) {
+      return data.keys().hasAll(baseItemKeys())
+             && data.type in ['text', 'photo', 'emoji', 'status', 'secret']
+             && data.keys().hasOnly(itemKeysFor(data.type))
+             && data.createdAt is timestamp
+             && data.reactions is map
+             && data.reactions.size() <= 2
+             && (!('body' in data) || data.body == null
+                 || (data.body is string && data.body.size() <= 2000))
+             && (!('mediaUrl' in data) || data.mediaUrl == null
+                 || (data.mediaUrl is string && data.mediaUrl.size() <= 512))
+             && (!('caption' in data) || data.caption == null
+                 || (data.caption is string && data.caption.size() <= 300))
+             && (!('emoji' in data) || data.emoji == null
+                 || (data.emoji is string && data.emoji.size() <= 16))
+             && (!('count' in data) || data.count == null
+                 || (data.count is int && data.count > 0 && data.count <= 999))
+             && (!('secretState' in data) || data.secretState == null
+                 || data.secretState in ['sealed', 'opened'])
+             && (!('revealDurationSeconds' in data)
+                 || data.revealDurationSeconds == null
+                 || (data.revealDurationSeconds is int
+                     && data.revealDurationSeconds > 0
+                     && data.revealDurationSeconds <= 3600))
+             && (!('openedAt' in data) || data.openedAt == null
+                 || data.openedAt is timestamp)
+             && (!('heldFullCountdown' in data)
+                 || data.heldFullCountdown == null
+                 || data.heldFullCountdown is bool);
+    }
+
+    /// A reactions map: at most one entry per member, each a short string.
+    function isWellFormedReaction(reactions) {
+      return reactions is map
+             && reactions.size() <= 2
+             && (!(request.auth.uid in reactions)
+                 || (reactions[request.auth.uid] is string
+                     && reactions[request.auth.uid].size() > 0
+                     && reactions[request.auth.uid].size() <= 16));
+    }
+
+    /// The item a secret body belongs to.
+    function revealItem(itemId) {
+      return get(/databases/$(database)/documents/items/$(itemId)).data;
+    }
+
+    /// True while a secret's reveal window is genuinely open.
+    ///
+    /// `opening` alone is not enough — an unbounded `opening` is `sealed` with
+    /// a longer name, and brief §10 promises against retention, not just
+    /// against the wrong reader.
+    ///
+    /// The bound IS expressible here: `duration.value()` accepts a value read
+    /// from the document, not only a literal. Probed both ways — a fresh
+    /// window reads, an expired one is denied.
+    ///
+    /// The exception is `untilClosed`, which has no `revealDurationSeconds`
+    /// and therefore no clock to bound. Those rely on state alone, and it is
+    /// **P3-01** that must close them; see the expired-window note in STATUS.
+    /// An `opening` item with no start time is unreadable — fails closed.
+    function isWithinRevealWindow(item) {
+      return item.secretState == 'opening'
+             && item.openingStartedAt is timestamp
+             // The key must be tested for presence first: reading a missing
+             // key from a map is an error in rules, not a false.
+             // `untilClosed` writes it as null, an older document may omit it
+             // entirely, and both must mean "no clock" rather than "denied".
+             && (('revealDurationSeconds' in item)
+                   && item.revealDurationSeconds is int
+                   ? request.time < item.openingStartedAt
+                       + duration.value(item.revealDurationSeconds, 's')
+                   : true);
+    }
+
+    /// A secret body. The text itself is the only payload.
+    function isWellFormedBody(data) {
+      return data.keys().hasOnly(['coupleId', 'senderId', 'body', 'createdAt'])
+             && data.keys().hasAll(['coupleId', 'senderId', 'body', 'createdAt'])
+             && data.body is string
+             && data.body.size() > 0
+             && data.body.size() <= 2000
+             && data.createdAt is timestamp;
+    }
+
     // Field unchanged between existing and incoming, treating absent as null.
     function fieldUnchanged(field) {
       return request.resource.data.get(field, null) == resource.data.get(field, null);
     }
 
     match /users/{uid} {
-      // Only the owner. A partner reading the other's profile arrives with the
-      // couple model (P2-12) and will be scoped by coupleId, not opened here.
+      // Only the owner, permanently. A partner never reads the other's profile:
+      // **M-02** denormalises display names onto `couples/{id}.memberNames`,
+      // which is members-only, so there is no reason to widen this and every
+      // reason not to — a rule permitting "anyone paired with me" would be a
+      // surface an enumerator can create at will.
       allow get: if isOwner(uid);
 
       // No listing: there is no query the app makes over the collection, and
@@ -131,6 +275,80 @@ service cloud.firestore {
       allow list: if false;
 
       allow create, update, delete: if false;
+    }
+
+    // The thread (**P2-10**). User-authored content that renders on the other
+    // person's screen, so every field is treated as untrusted.
+    match /items/{itemId} {
+      // Both scoped to the caller's couple. `list` is allowed rather than
+      // denied because P2-12 needs an ordered, paginated, live query — a flat
+      // deny would force reads by id, which a feed cannot do.
+      //
+      // Firestore evaluates this per returned document and fails the whole
+      // query if any row fails, so an unfiltered or wrongly-scoped query is
+      // rejected wholesale. The client must filter on its own coupleId.
+      allow get, list: if isCoupleMember(resource.data.coupleId);
+
+      allow create: if isCoupleMember(request.resource.data.coupleId)
+                    // You may only speak as yourself.
+                    && request.resource.data.senderId == request.auth.uid
+                    && isWellFormedItem(request.resource.data)
+                    && request.resource.data.createdAt == request.time
+                    // Nobody has reacted to a message that does not exist yet.
+                    && request.resource.data.reactions.size() == 0;
+
+      // Reactions are the only mutable field, and only your own entry in them.
+      //
+      // Both halves are expressible: affectedKeys() on the document restricts
+      // WHICH field may change, and MapDiff.affectedKeys() on the reactions
+      // map restricts WHICH KEY inside it. Without the second, any member
+      // could rewrite their partner's reaction — or clear the map.
+      allow update: if isCoupleMember(resource.data.coupleId)
+                    && request.resource.data.diff(resource.data)
+                       .affectedKeys().hasOnly(['reactions'])
+                    && request.resource.data.reactions
+                       .diff(resource.data.reactions)
+                       .affectedKeys().hasOnly([request.auth.uid])
+                    && isWellFormedReaction(request.resource.data.reactions);
+
+      // No delete-a-message feature exists, and brief §7 puts editing out of
+      // scope for V1. Removal is server-side only: P3-01 for secret bodies,
+      // P2-36's sweep on unpair. A client that could delete its own copy has
+      // not deleted anything anyway.
+      allow delete: if false;
+    }
+
+    // Secret bodies, keyed by item id (**P2-10**).
+    //
+    // Carries `coupleId` because P2-36's sweep must find orphans by couple:
+    // items are otherwise the only handle on a body, and either side can be
+    // deleted first. Carries `senderId` so creation binds to the sender
+    // without a get() on an item that may not be committed yet.
+    match /secretBodies/{itemId} {
+      // The recipient, and only while the reveal window is open (brief §10).
+      //
+      // Not "while sealed": that would mean every unopened secret, forever,
+      // which guards against the wrong reader but not against retention.
+      // `opening` is a real state (P2-06) with a start time, and the window is
+      // bounded here against request.time.
+      //
+      // COST: one extra get() on the item, on top of the profile read.
+      allow get: if isCoupleMember(resource.data.coupleId)
+                 && resource.data.senderId != request.auth.uid
+                 && isWithinRevealWindow(revealItem(itemId));
+
+      // No listing, ever. A body is fetched by the id of the item being
+      // opened; enumerating them is the whole thing brief §10 forbids.
+      allow list: if false;
+
+      allow create: if isCoupleMember(request.resource.data.coupleId)
+                    && request.resource.data.senderId == request.auth.uid
+                    && isWellFormedBody(request.resource.data)
+                    && request.resource.data.createdAt == request.time;
+
+      // A body is written once and never edited. Deletion is P3-01's Function
+      // and P2-36's sweep — never a client.
+      allow update, delete: if false;
     }
 
     // Request-budget counters. No client access in any direction: readable
