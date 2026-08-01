@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/pairing_code.dart';
+
 /// Six-slot entry for the partner's code.
 ///
 /// A transparent [TextField] fills the tile so the platform keyboard, caret
@@ -73,7 +75,13 @@ class _PartnerCodeFieldState extends State<PartnerCodeField> {
                 focusNode: _focusNode,
                 autocorrect: false,
                 enableSuggestions: false,
-                textCapitalization: TextCapitalization.characters,
+                // NOT TextCapitalization.characters. That pins iOS to the
+                // letters plane, which is why digits felt impossible to enter
+                // even though the filter has always allowed them — and codes
+                // are mostly alphanumeric, so it made most of them unusable.
+                // The formatter below uppercases anyway, so forcing the
+                // keyboard bought nothing and cost the digits.
+                keyboardType: TextInputType.visiblePassword,
                 textAlign: TextAlign.center,
                 showCursor: false,
                 cursorColor: Colors.transparent,
@@ -86,9 +94,15 @@ class _PartnerCodeFieldState extends State<PartnerCodeField> {
                   contentPadding: EdgeInsets.zero,
                 ),
                 maxLength: widget.length,
+                // Order matters: uppercase first, then filter. That way a
+                // typed 'w' becomes 'W' and survives, while a typed 'l'
+                // becomes 'L' and is correctly rejected — L is not in the
+                // alphabet and can never appear in a real code.
                 inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp('[A-Za-z0-9]')),
                   _UpperCaseFormatter(),
+                  FilteringTextInputFormatter.allow(
+                    RegExp('[$pairingCodeAlphabet]'),
+                  ),
                 ],
                 onChanged: (text) {
                   setState(() {});

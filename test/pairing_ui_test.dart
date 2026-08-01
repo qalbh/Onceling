@@ -10,7 +10,9 @@ import 'package:couple_app/common/providers.dart';
 import 'package:couple_app/features/pairing/models/pairing_request.dart';
 import 'package:couple_app/features/pairing/pairing_celebration.dart';
 import 'package:couple_app/features/pairing/pairing_errors.dart';
+import 'package:couple_app/features/pairing/models/pairing_code.dart';
 import 'package:couple_app/features/pairing/screens/pairing_screen.dart';
+import 'package:couple_app/features/pairing/widgets/partner_code_field.dart';
 import 'package:couple_app/theme/app_theme.dart';
 
 import 'test_doubles.dart';
@@ -45,14 +47,14 @@ void main() {
       await tester.pumpWidget(_pairingApp(signedInOverrides()));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField).first, 'ABC123');
+      await tester.enterText(find.byType(TextField).first, 'ABC234');
       await tester.pumpAndSettle();
       await tester.tap(find.text('Pair us'));
       await tester.pumpAndSettle();
 
       expect(find.text('Send a pairing request?'), findsOneWidget);
       // Spaced echo, so a transposed character is visible.
-      expect(find.text('A B C 1 2 3'), findsOneWidget);
+      expect(find.text('A B C 2 3 4'), findsOneWidget);
 
       // The whole point of P2-23: no identity leaks before acceptance.
       expect(find.textContaining('Maya'), findsNothing);
@@ -65,7 +67,7 @@ void main() {
       await tester.pumpWidget(_pairingApp(signedInOverrides(pairing: pairing)));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField).first, 'ABC123');
+      await tester.enterText(find.byType(TextField).first, 'ABC234');
       await tester.pumpAndSettle();
       await tester.tap(find.text('Pair us'));
       await tester.pumpAndSettle();
@@ -84,14 +86,14 @@ void main() {
       await tester.pumpWidget(_pairingApp(signedInOverrides(pairing: pairing)));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField).first, 'ABC123');
+      await tester.enterText(find.byType(TextField).first, 'ABC234');
       await tester.pumpAndSettle();
       await tester.tap(find.text('Pair us'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Send'));
       await tester.pumpAndSettle();
 
-      expect(pairing.calls, contains('requestPairing:ABC123'));
+      expect(pairing.calls, contains('requestPairing:ABC234'));
     });
 
     // One test per case: a loop inside a single testWidgets would leave the
@@ -116,7 +118,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await tester.enterText(find.byType(TextField).first, 'ABC123');
+        await tester.enterText(find.byType(TextField).first, 'ABC234');
         await tester.pumpAndSettle();
         await tester.tap(find.text('Pair us'));
         await tester.pumpAndSettle();
@@ -150,6 +152,61 @@ void main() {
     test('an unmapped reason still produces copy rather than blank', () {
       expect(pairingErrorMessage(_rejection('brand-new-reason')), isNotEmpty);
       expect(pairingErrorMessage(Exception('boom')), isNotEmpty);
+    });
+  });
+
+  group('the code entry field accepts exactly the generator alphabet', () {
+    Future<String> type(WidgetTester tester, String input) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: Scaffold(body: PartnerCodeField(controller: controller)),
+        ),
+      );
+      await tester.enterText(find.byType(TextField), input);
+      await tester.pump();
+      return controller.text;
+    }
+
+    testWidgets('every character in the alphabet is enterable', (tester) async {
+      // Digits were the bug: codes are mostly alphanumeric and the keyboard
+      // was pinned to letters, so most real codes could not be typed at all.
+      for (final char in pairingCodeAlphabet.split('')) {
+        expect(
+          await type(tester, char),
+          char,
+          reason: '"$char" is in the generator alphabet and must be enterable',
+        );
+      }
+    });
+
+    testWidgets('a real generated code goes in whole', (tester) async {
+      expect(await type(tester, 'W2F9MF'), 'W2F9MF');
+      expect(await type(tester, 'AK9H2C'), 'AK9H2C');
+    });
+
+    testWidgets('lowercase is uppercased, not rejected', (tester) async {
+      // A silent rejection reads as a broken keyboard.
+      expect(await type(tester, 'ak9h2c'), 'AK9H2C');
+      expect(await type(tester, 'w2f9mf'), 'W2F9MF');
+    });
+
+    testWidgets('the ambiguous characters are rejected', (tester) async {
+      // 0/O and 1/I/L are excluded from the generator precisely because they
+      // are misread aloud, so they can never appear in a real code.
+      for (final char in ['0', 'O', '1', 'I', 'L', 'o', 'i', 'l']) {
+        expect(
+          await type(tester, char),
+          '',
+          reason: '"$char" cannot appear in a generated code',
+        );
+      }
+    });
+
+    testWidgets('punctuation and spaces are rejected', (tester) async {
+      expect(await type(tester, 'A-B C!'), 'ABC');
     });
   });
 

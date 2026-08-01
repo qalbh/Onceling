@@ -117,11 +117,11 @@ void main() {
 
       expect(pairButton().onPressed, isNull);
 
-      await tester.enterText(find.byType(TextField), 'ab12');
+      await tester.enterText(find.byType(TextField), 'ab23');
       await tester.pump();
       expect(pairButton().onPressed, isNull);
 
-      await tester.enterText(find.byType(TextField), 'ab12cd');
+      await tester.enterText(find.byType(TextField), 'ab23cd');
       await tester.pump();
       expect(pairButton().onPressed, isNotNull);
 
