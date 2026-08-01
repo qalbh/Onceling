@@ -228,6 +228,17 @@ Projects `qalb-coupleapp-dev` and `qalb-coupleapp-prod`. IDs are permanent.
   Report each device ID, the model, and which account (if any) each is signed in as.
   If only one simulator is booted, say so rather than silently installing on one.
 
+- Temporary instrumentation is not reverted until a clean build is installed on every
+  booted simulator **and the artifact is checked**. `--dart-define` values compile
+  into the binary and leave no trace in the repo, so grepping the source tree proves
+  nothing about what is running on a device. Verify with:
+
+      grep -c AUTOFLOW <app>/Frameworks/App.framework/flutter_assets/kernel_blob.bin
+
+  Source state and device state are different things. An instrumented build survived
+  on both simulators for a full session after the source was clean, and prefilled the
+  sign-in sheet and auto-submitted it — which read as an app bug.
+
 - Seeded test accounts, all with password `testpass123`: `maya@onceling.test`,
   `devon@onceling.test`, `sam@onceling.test`, `alex@onceling.test`,
   `jo@onceling.test`.

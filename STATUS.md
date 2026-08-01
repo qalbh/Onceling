@@ -361,6 +361,13 @@ there is data.
       *No index needed: a single `array-contains` filter with no other filter or
       `orderBy` uses the automatic single-field index. `firestore.indexes.json` is
       untouched.*
+- [ ] **P2-36** Unpair. The settings screen has an unpair sheet with typed
+      confirmation (Phase 1 UI), but nothing behind it. A paired user currently cannot
+      separate. Needs a callable that clears `coupleId` on both users server-side —
+      per CLAUDE.md, an unrestricted clear is as dangerous as an unrestricted set,
+      because it orphans a couple. Must be atomic and idempotent, and must decide what
+      happens to `couples/{id}`, `items`, and `secretBodies`. Blocked on **Q5**
+      (export or destroy).
 - [ ] **P2-31** Validate `favoriteEmojis` element contents. The rule bounds the list
       to 8 entries but Firestore rules have no per-element expression — a 200KB string
       in one entry was accepted under probe. Self-scoped and capped by the 1MiB
