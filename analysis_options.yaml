@@ -14,7 +14,13 @@ analyzer:
     # Generated build output. Swift Package Manager checks plugin sources out
     # into build/ios/SourcePackages/, and analysing other people's package
     # tests reports hundreds of issues we neither own nor can fix.
+    #
+    # Both patterns matter. `build/**` is the repo-root one; `**/build/**`
+    # catches a build tree that lands anywhere else, which happens when a
+    # flutter command runs from a subdirectory — `functions/build/ios/` once
+    # appeared that way and put 386 foreign errors into a clean analyze.
     - build/**
+    - "**/build/**"
 
 linter:
   # The lint rules applied to this project can be customized in the
