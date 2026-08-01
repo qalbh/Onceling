@@ -11,6 +11,7 @@
 // Deliberately not in functions/ (not deployed) and not in lib/ (not app code).
 
 import { createRequire } from 'node:module';
+import { statSync, truncateSync } from 'node:fs';
 
 // firebase-admin is a dependency of functions/, not of this directory — same
 // resolution trick rules-tests/ uses, so there is no third node_modules tree.
@@ -81,6 +82,48 @@ const { claimPairingCode } = requireFromFunctions('./lib/pairing.js');
 
 // ---------------------------------------------------------------------------
 
+/** Emulator debug logs, at the repo root. Regenerated; safe to empty. */
+const DEBUG_LOGS = [
+  'firebase-debug.log',
+  'firestore-debug.log',
+  'ui-debug.log',
+  'database-debug.log',
+  'pubsub-debug.log',
+];
+
+/**
+ * Empties the emulator debug logs and reports what that reclaimed.
+ *
+ * These grow without bound — both Node suites log every request, and the P2-18
+ * concurrency tests alone fire thousands. They reached 640 MB combined during
+ * development and filled the disk, which stopped a simulator build entirely.
+ * The seed script is the right home for this: it is what you already run after
+ * every wipe, and a documented manual step is a step people skip.
+ *
+ * SPARSE-FILE WARNING. The emulator holds these files open, so truncating does
+ * not reset its write offset — the next write lands at the old offset and
+ * leaves a hole. Afterwards `ls -l` reports the *apparent* size, which stays
+ * huge and is misleading; `du` reports blocks actually on disk, which is the
+ * truth. This cost a wrong diagnosis once: `ls` said 199 MB while `du` said
+ * 16 K. Measure with `du`.
+ */
+function truncateDebugLogs() {
+  let reclaimed = 0;
+  for (const name of DEBUG_LOGS) {
+    const path = new URL(`../${name}`, import.meta.url);
+    try {
+      // blocks * 512 is real disk usage; statSync().size would be the
+      // apparent size and would overreport a sparse file.
+      reclaimed += statSync(path).blocks * 512;
+      truncateSync(path, 0);
+    } catch (error) {
+      // Missing is fine — the emulator writes them lazily.
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+  return reclaimed;
+}
+
 /** The auth account, created if missing. Never overwrites an existing one. */
 async function ensureAccount({ email, displayName }) {
   try {
@@ -147,6 +190,10 @@ async function reset() {
 }
 
 async function main() {
+  // Behind the same emulator guard as everything else: this only ever touches
+  // logs sitting next to an emulator we have already proven we are talking to.
+  const reclaimed = truncateDebugLogs();
+
   const shouldReset = process.argv.includes('--reset');
   if (shouldReset) await reset();
 
@@ -154,16 +201,32 @@ async function main() {
   for (const spec of USERS) {
     const { uid, created } = await ensureAccount(spec);
     const wroteProfile = await ensureProfile(uid, spec.displayName);
-    // Idempotent by construction: claimPairingCode returns the existing code
-    // when the profile already carries one, so a second run is a no-op.
-    const pairingCode = await claimPairingCode(db, uid);
+
+    // A paired account has no code, and asking for one throws
+    // caller-already-paired. That used to abort the whole loop partway, which
+    // left later users with an auth account and no profile — a state the app
+    // reads as "signed in, profile missing" and strands on the splash screen.
+    // Any walkthrough that actually pairs someone leaves the emulator here, so
+    // this is the normal case, not an edge case.
+    const paired = (await db.doc(`users/${uid}`).get()).data()?.coupleId != null;
+    const pairingCode = paired
+      ? '—'
+      : // Idempotent by construction: claimPairingCode returns the existing
+        // code when the profile already carries one, so a rerun is a no-op.
+        await claimPairingCode(db, uid);
 
     rows.push({
       email: spec.email,
       uid,
       displayName: spec.displayName,
       pairingCode,
-      note: created ? 'created' : wroteProfile ? 'profile added' : 'existing',
+      note: paired
+        ? 'PAIRED — use --reset'
+        : created
+          ? 'created'
+          : wroteProfile
+            ? 'profile added'
+            : 'existing',
     });
   }
 
@@ -177,7 +240,14 @@ async function main() {
   console.log(line(columns));
   console.log(columns.map((c) => '-'.repeat(width[c])).join('  '));
   for (const row of rows) console.log(line(columns.map((c) => row[c])));
-  console.log(`\nAll five are unpaired. Password for every account: ${PASSWORD}`);
+  const anyPaired = rows.some((r) => r.note.startsWith('PAIRED'));
+  console.log(
+    anyPaired
+      ? `\nSome accounts are paired and kept their couple. Password: ${PASSWORD}`
+      : `\nAll five are unpaired. Password for every account: ${PASSWORD}`,
+  );
+  const mb = (reclaimed / 1024 / 1024).toFixed(1);
+  console.log(`Emulator debug logs truncated — ${mb} MB reclaimed.`);
 }
 
 await main();
