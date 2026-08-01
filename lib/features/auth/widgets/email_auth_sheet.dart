@@ -8,8 +8,22 @@ import '../auth_service.dart';
 
 /// Email and password, sign-in and sign-up in one sheet.
 ///
-/// A sheet rather than a screen on purpose: auth-gated routing is **P2-14**, so
-/// nothing here navigates. Signing in leaves you exactly where you were.
+/// **This sheet does not dismiss itself on success, and must not.** Signing in
+/// changes auth state, the gate (**P2-14**) re-runs, and go_router replaces the
+/// whole page stack — `/` becomes `/splash` and then `/pairing` or `/feed`.
+/// This sheet is a *pageless* route attached to the `/` page, so that
+/// replacement disposes it. Dismissal is something that happens to it, not
+/// something it does.
+///
+/// Popping here is a race, not a tidy-up: by the time an `await`ed sign-in
+/// returns, the page this sheet was attached to may already be gone, and
+/// popping into a Navigator mid-rebuild is what produced the duplicate-GlobalKey
+/// crash on first sign-in. Device traces showed two page-stack replacements
+/// landing inside that await, with `mounted` already false at pop time — the
+/// pop was dead code on the success path even before it was removed.
+///
+/// The failure path is different: nothing navigates, the sheet stays open, and
+/// it shows its own error.
 class EmailAuthSheet extends ConsumerStatefulWidget {
   const EmailAuthSheet({super.key});
 
@@ -67,7 +81,9 @@ class _EmailAuthSheetState extends ConsumerState<EmailAuthSheet> {
       } else {
         await service.signIn(email: _email.text, password: _password.text);
       }
-      if (mounted) Navigator.of(context).pop();
+      // No pop. The gate is already replacing the page stack underneath this
+      // sheet, which disposes it — see the class comment. Success leaves this
+      // method having done exactly one thing: called the service.
     } on AuthFailure catch (failure) {
       if (mounted) setState(() => _error = failure.message);
     } catch (_) {

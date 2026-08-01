@@ -170,10 +170,11 @@ void main() {
     expect(service.calls, ['signUp:a@b.test:Alice']);
   });
 
-  testWidgets('a successful sign-in closes the sheet and does not navigate', (
+  testWidgets('a successful sign-in does not dismiss the sheet itself', (
     tester,
   ) async {
-    await pumpSheet(tester, FakeAuthService());
+    final service = FakeAuthService();
+    await pumpSheet(tester, service);
 
     await tester.enterText(find.byType(TextField).first, 'a@b.test');
     await tester.enterText(find.byType(TextField).last, 'hunter22');
@@ -181,9 +182,15 @@ void main() {
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(EmailAuthSheet), findsNothing);
-    // Auth gating is P2-14 — signing in leaves you where you were.
-    expect(find.byType(SignInScreen), findsOneWidget);
+    expect(service.calls, contains('signIn:a@b.test'));
+    // The sheet no longer pops itself. In the app the gate replaces the page
+    // stack and that disposes it; this harness has no gate, so it stays — and
+    // that is the correct outcome here. Popping on success was a race against
+    // the replacement, which is what crashed on first sign-in.
+    // The real dismissal is asserted in router_signin_test.dart, through the
+    // provider graph with a live gate.
+    expect(find.byType(EmailAuthSheet), findsOneWidget);
+    expect(find.text('Something went wrong. Try again.'), findsNothing);
   });
 
   testWidgets('Apple and Google are visibly disabled until wired', (
