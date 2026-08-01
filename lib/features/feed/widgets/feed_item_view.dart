@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../common/time_format.dart';
 import '../../../theme/theme_colors.dart';
+import '../../pairing/couple_names.dart';
 import '../models/feed_item.dart';
-import '../models/sample_thread.dart';
 import 'feed_header.dart';
 import 'secret_card.dart';
 
 /// Renders one entry of the thread, mirrored depending on whether [viewerId]
 /// sent it. Outgoing sits right with the avatar in the right gutter; incoming
 /// sits left with the avatar in the left gutter.
-class FeedItemView extends StatelessWidget {
+class FeedItemView extends ConsumerWidget {
   const FeedItemView({
     super.key,
     required this.item,
@@ -32,7 +33,7 @@ class FeedItemView extends StatelessWidget {
   final VoidCallback? onTapStatus;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (item case StatusNote(:final text, :final icon)) {
       return _StatusNoteView(text: text, icon: icon, onTap: onTapStatus);
     }
@@ -40,7 +41,7 @@ class FeedItemView extends StatelessWidget {
     final isMine = item.senderId == viewerId;
 
     final avatar = PersonAvatar(
-      initial: memberInitial(item.senderId),
+      initial: ref.watch(memberInitialResolverProvider)(item.senderId),
       size: 34,
     );
     final content = Flexible(
@@ -48,7 +49,7 @@ class FeedItemView extends StatelessWidget {
         crossAxisAlignment: isMine
             ? CrossAxisAlignment.end
             : CrossAxisAlignment.start,
-        children: [_body(context, isMine), ..._trailing(isMine)],
+        children: [_body(context, ref, isMine), ..._trailing(isMine)],
       ),
     );
 
@@ -66,7 +67,7 @@ class FeedItemView extends StatelessWidget {
     );
   }
 
-  Widget _body(BuildContext context, bool isMine) {
+  Widget _body(BuildContext context, WidgetRef ref, bool isMine) {
     final maxWidth = MediaQuery.sizeOf(context).width * 0.74;
 
     return switch (item) {
@@ -126,7 +127,7 @@ class FeedItemView extends StatelessWidget {
           constraints: BoxConstraints(maxWidth: maxWidth * 0.88),
           child: SecretCard(
             item: item as SecretMessage,
-            senderName: memberName(item.senderId),
+            senderName: ref.watch(memberNameResolverProvider)(item.senderId),
             onOpen: onOpenSecret,
           ),
         ),

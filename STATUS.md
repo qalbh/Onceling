@@ -89,7 +89,27 @@ Flagged in review. Small, keeps getting deferred because none of it is code.
 Looks finished, backed by nothing. This is the real Phase 2 worklist.
 
 - [ ] **M-01** Feed — `sampleThread()` hardcoded → Firestore collection
-- [ ] **M-02** Users — `Person` enum (`maya`, `devon`) → real accounts and profiles
+- [x] **M-02** Users — `Person` enum (`maya`, `devon`) → real accounts and profiles
+      *Names now come from the signed-in profile (`myNameProvider`) and from
+      `couples/{id}.memberNames`, denormalised by `respondToPairing` from the two user
+      documents it already loads — no extra read. Reading the partner's profile
+      directly is impossible by design: `users` is owner-only, and widening it to
+      "anyone paired with me" is the enumerable-directory surface the P2-09b audit
+      flagged. Same trade as **P2-25**'s `fromDisplayName`, bounded and defaulted on
+      the same terms because it is user text crossing to the other person's screen.
+      Confirmed by probe that `memberNames` adds no reachability — `couples` was
+      already members-only, so no rules change and no auditor run.*
+      *A couple with no `memberNames` — every couple formed before this — renders
+      "Your person" rather than a blank or a crash. No migration by design; re-pairing
+      regenerates it.*
+      *`coupleName` is null on every real couple, so the title falls back to
+      "<me> & <partner>", and to the neutral label if the partner is unknown rather
+      than showing half a title.*
+      *`memberName`/`memberInitial`/`partnerOf` are gone from `sample_thread.dart`,
+      which now holds only the mock items, the two uid constants, and a `mockMembers`
+      map the resolver falls back to. **That fallback is deleted at P2-12** with the
+      mock thread — it exists so the sample feed stays readable, not because mock
+      identity is wanted.*
 - [ ] **M-03** Pairing — `myCode = 'MK4Q7B'`, `_canPair` only checks `length == 6`
 - [ ] **M-04** Share link — toast stub → deep link generation and handling
 - [ ] **M-05** Secrets — `markOpened()` deletes client-side; must move to a Function
@@ -492,6 +512,11 @@ Non-blocking. Fix when convenient.
       was designed for that. Any refactor that moves the sweep out of the transaction
       removes a correctness mechanism while leaving every test green. Warning comment
       is at the call site.
+- [ ] **D-13** `couples/{id}.memberNames` is a snapshot from pairing time — a later
+      rename does not propagate, so the partner keeps seeing the old name. Same
+      accepted trade as **P2-25**'s `fromDisplayName`. The fix is a profile-update
+      path that refreshes the couple, and it belongs with whatever task lets someone
+      edit their display name — which does not exist yet.
 - [ ] **D-12** `ensureUserProfile` absorbs an ALREADY_EXISTS race by re-reading and
       reporting the winner's document. `.create()` was kept over `.set()` deliberately
       — `set` would clobber a document written between the existence check and the

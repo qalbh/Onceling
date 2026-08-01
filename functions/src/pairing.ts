@@ -540,8 +540,32 @@ export const respondToPairing = onCall(async (request) => {
     );
 
     // ---- writes ----
+    // Denormalised so each partner can render the other's name (**M-02**)
+    // without a rule that lets anyone read anyone's profile — the same trade
+    // P2-25 made for `fromDisplayName`, and `couples` is already members-only.
+    // Both documents are already loaded above for the already-paired checks,
+    // so this costs no extra read.
+    //
+    // Untrusted content on the same terms: these strings are user-controlled
+    // and cross to the other person's screen, so they are bounded and
+    // defaulted here rather than trusted.
+    //
+    // SNAPSHOT SEMANTICS, as with fromDisplayName: a later rename does not
+    // propagate. Accepted for now — see the debt entry; the fix belongs with
+    // whatever task lets someone edit their display name, which does not
+    // exist yet.
+    const memberNames: Record<string, string> = {
+      [senderId]:
+        boundedString(sender.displayName, MAX_DENORMALISED_NAME) ??
+        FALLBACK_SENDER_NAME,
+      [uid]:
+        boundedString(recipient.displayName, MAX_DENORMALISED_NAME) ??
+        FALLBACK_SENDER_NAME,
+    };
+
     t.create(coupleRef, {
       memberIds: [senderId, uid],
+      memberNames,
       coupleName: null,
       // OPEN (owner decision): default to the pairing date, or ask later?
       // Left null rather than inventing a default nobody chose.

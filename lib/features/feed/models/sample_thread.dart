@@ -5,21 +5,20 @@ import 'feed_item.dart';
 const mayaUid = 'uid-maya';
 const devonUid = 'uid-devon';
 
-/// Display identity for the mock pair. Replaced by real profile documents at
-/// **M-02** — until then the view layer resolves a uid through here rather than
-/// the model carrying names it should never have owned.
+/// Display names for the two mock uids, used only while the thread itself is
+/// mock data. Resolution now lives in `memberNameResolverProvider`, which
+/// consults the couple's real `memberNames` first and only falls back here.
+///
+/// **Delete this with the mock thread at P2-12.** It exists so the sample feed
+/// stays readable, not because mock identity is wanted on real screens.
 const mockMembers = <String, ({String name, String initial})>{
   mayaUid: (name: 'Maya', initial: 'M'),
   devonUid: (name: 'Devon', initial: 'D'),
 };
 
-String memberName(String uid) => mockMembers[uid]?.name ?? 'Them';
-
-String memberInitial(String uid) => mockMembers[uid]?.initial ?? '?';
-
-/// The other half of the pair. Real pairing resolves this from the couple
-/// document; the mock has exactly two members.
-String partnerOf(String uid) => uid == mayaUid ? devonUid : mayaUid;
+/// The other of the two mock uids, for the viewer-swap affordance on the mock
+/// thread. Real partner resolution is `Couple.partnerOf`. **Delete at P2-12.**
+String mockPartnerOf(String uid) => uid == mayaUid ? devonUid : mayaUid;
 
 /// Fixed clock times so the mock thread reads the way the designs do.
 DateTime _at(int hour, int minute) => DateTime(2026, 7, 30, hour, minute);

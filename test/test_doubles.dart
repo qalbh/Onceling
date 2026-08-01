@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:couple_app/common/providers.dart';
 import 'package:couple_app/features/auth/auth_service.dart';
 import 'package:couple_app/features/auth/models/user_profile.dart';
+import 'package:couple_app/features/pairing/couple_names.dart';
+import 'package:couple_app/features/pairing/models/couple.dart';
 import 'package:couple_app/features/pairing/models/pairing_request.dart';
 import 'package:couple_app/features/pairing/pairing_service.dart';
 
@@ -100,6 +102,22 @@ PairingRequest fakeRequest({
   createdAt: createdAt,
 );
 
+/// A couple carrying denormalised member names (**M-02**).
+Couple fakeCouple({
+  String id = 'couple-1',
+  Map<String, String>? memberNames = const {
+    'uid-test': 'Maya',
+    'uid-partner': 'Devon',
+  },
+  String? coupleName,
+}) => Couple(
+  id: id,
+  memberIds: const ['uid-test', 'uid-partner'],
+  // Null models a couple formed before M-02 — no migration by design.
+  memberNames: memberNames ?? const {},
+  coupleName: coupleName,
+);
+
 /// Overrides for a signed-out session: the gate lands on sign-in.
 List<Override> signedOutOverrides() => [
   authStateProvider.overrideWith((ref) => Stream.value(null)),
@@ -113,9 +131,11 @@ List<Override> signedOutOverrides() => [
 List<Override> pairingStreamOverrides({
   List<PairingRequest> incoming = const [],
   PairingRequest? outgoing,
+  Couple? couple,
 }) => [
   incomingRequestsProvider.overrideWith((ref) => Stream.value(incoming)),
   outgoingRequestProvider.overrideWith((ref) => Stream.value(outgoing)),
+  coupleProvider.overrideWith((ref) => Stream.value(couple)),
 ];
 
 /// Overrides for a signed-in session with the given pairing state.
@@ -128,6 +148,10 @@ List<Override> signedInOverrides({
   PairingService? pairing,
   List<PairingRequest> incoming = const [],
   PairingRequest? outgoing,
+  Map<String, String>? memberNames = const {
+    'uid-test': 'Maya',
+    'uid-partner': 'Devon',
+  },
 }) => [
   authStateProvider.overrideWith((ref) => Stream.value(FakeUser())),
   currentUserProvider.overrideWith(
@@ -135,7 +159,13 @@ List<Override> signedInOverrides({
         Stream.value(fakeProfile(coupleId: coupleId, pairingCode: pairingCode)),
   ),
   pairingServiceProvider.overrideWithValue(pairing ?? FakePairingService()),
-  ...pairingStreamOverrides(incoming: incoming, outgoing: outgoing),
+  ...pairingStreamOverrides(
+    incoming: incoming,
+    outgoing: outgoing,
+    couple: coupleId == null
+        ? null
+        : fakeCouple(id: coupleId, memberNames: memberNames),
+  ),
 ];
 
 /// A session whose auth state can be flipped mid-test — sign-out goes through

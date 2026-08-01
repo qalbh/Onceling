@@ -8,6 +8,7 @@ import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
 import '../../../theme/theme_glyphs.dart';
 import '../../feed/models/sample_thread.dart';
+import '../../pairing/couple_names.dart';
 import '../../feed/widgets/feed_header.dart';
 import '../../feed/widgets/reaction_tray.dart';
 import '../widgets/settings_rows.dart';
@@ -17,13 +18,11 @@ class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({
     super.key,
     this.viewerId = mayaUid,
-    this.coupleName = 'Maya & Devon',
     this.anniversary = '4 November 2023',
     this.streak = 47,
   });
 
   final String viewerId;
-  final String coupleName;
   final String anniversary;
   final int streak;
 
@@ -39,8 +38,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _secretAlerts = true;
   bool _screenshotAlerts = true;
   _NudgeLevel _nudges = _NudgeLevel.quiet;
-
-  String get _partnerId => partnerOf(widget.viewerId);
 
   Future<void> _swapFavourite(int index) async {
     final picked = await ReactionTray.show(context, title: 'Pick a favourite');
@@ -65,7 +62,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // the gate actually moves. See P2-37 for what manual navigation cost here.
     await UnpairSheet.show(
       context,
-      partnerName: memberName(_partnerId),
+      partnerName: ref.watch(partnerNameProvider),
       streak: widget.streak,
     );
   }
@@ -84,7 +81,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: 26),
             SettingsCard(
               children: [
-                SettingsRow(label: 'Couple name', value: widget.coupleName),
+                SettingsRow(
+                  label: 'Couple name',
+                  value: ref.watch(coupleTitleProvider),
+                ),
                 SettingsRow(label: 'Anniversary', value: widget.anniversary),
                 SettingsRow(label: 'Streak', value: '${widget.streak}-day'),
               ],
@@ -121,7 +121,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             SettingsCard(
               children: [
                 SettingsRow(
-                  label: 'Unpair from ${memberName(_partnerId)}',
+                  label: 'Unpair from ${ref.watch(partnerNameProvider)}',
                   destructive: true,
                   onTap: _unpair,
                 ),
@@ -173,18 +173,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Row(
       spacing: 18,
       children: [
-        PersonAvatar(initial: memberInitial(widget.viewerId), size: 78),
+        PersonAvatar(
+          initial: ref.watch(memberInitialResolverProvider)(widget.viewerId),
+          size: 78,
+        ),
         Flexible(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                memberName(widget.viewerId),
+                ref.watch(myNameProvider),
                 style: AppTheme.wordmark(context, 26),
               ),
               const SizedBox(height: 4),
               Text(
-                'paired with ${memberName(_partnerId)}',
+                'paired with ${ref.watch(partnerNameProvider)}',
                 style: Theme.of(context).textTheme.bodyLarge!.copyWith(
                   color: context.palette.inkFaint,
                 ),

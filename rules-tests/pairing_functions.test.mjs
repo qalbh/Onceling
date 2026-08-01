@@ -630,6 +630,76 @@ describe("requestPairing — denormalised sender (P2-25)", () => {
   });
 });
 
+describe("respondToPairing — denormalised member names (M-02)", () => {
+  /** Two users with the given display names, paired for real. */
+  async function pairWithNames(nameA, nameB) {
+    const a = await newUser();
+    const b = await newUser();
+    await seedProfile(a.uid, { displayName: nameA });
+    await seedProfile(b.uid, { displayName: nameB });
+    const { code } = (await b.call("ensurePairingCode")).data;
+    const { requestId } = (await a.call("requestPairing", { code })).data;
+    const { coupleId } = (
+      await b.call("respondToPairing", { requestId, accept: true })
+    ).data;
+    return { a, b, coupleId };
+  }
+
+  test("writes both names, keyed by uid, in both directions", async () => {
+    const { a, b, coupleId } = await pairWithNames("Maya", "Sam");
+    const couple = await readDoc(`couples/${coupleId}`);
+
+    assert.equal(couple.memberNames[a.uid], "Maya");
+    assert.equal(couple.memberNames[b.uid], "Sam");
+    // Every member has a name — the client must never render a blank.
+    for (const uid of couple.memberIds) {
+      assert.ok(couple.memberNames[uid], `no name for member ${uid}`);
+    }
+  });
+
+  test("the sender's name is written even though they did not accept", async () => {
+    // The recipient's transaction writes both, so the person who asked gets
+    // rendered on the other's screen without ever acting again.
+    const { a, coupleId } = await pairWithNames("Devon", "Alex");
+    assert.equal(
+      (await readDoc(`couples/${coupleId}`)).memberNames[a.uid],
+      "Devon",
+    );
+  });
+
+  test("an over-long name is truncated before it reaches the couple", async () => {
+    // User-controlled text crossing to the other person's screen, bounded on
+    // the same terms as P2-25's fromDisplayName.
+    const { a, coupleId } = await pairWithNames("M".repeat(500), "Sam");
+    const couple = await readDoc(`couples/${coupleId}`);
+
+    assert.equal(
+      couple.memberNames[a.uid].length,
+      pairing.MAX_DENORMALISED_NAME,
+    );
+  });
+
+  test("an empty name falls back rather than writing a blank", async () => {
+    const { a, coupleId } = await pairWithNames("   ", "Sam");
+    const couple = await readDoc(`couples/${coupleId}`);
+
+    assert.equal(couple.memberNames[a.uid], pairing.FALLBACK_SENDER_NAME);
+    assert.ok(couple.memberNames[a.uid].length > 0);
+  });
+
+  test("costs no extra read — the names come from documents already loaded", async () => {
+    // Not directly observable, so assert the invariant it depends on: the
+    // couple carries names for exactly its members and nobody else.
+    const { a, b, coupleId } = await pairWithNames("Maya", "Sam");
+    const couple = await readDoc(`couples/${coupleId}`);
+
+    assert.deepEqual(
+      Object.keys(couple.memberNames).sort(),
+      [a.uid, b.uid].sort(),
+    );
+  });
+});
+
 describe("unpair — phase 1, separation (P2-36)", () => {
   const readAll = (name) =>
     admin(async (db) => {

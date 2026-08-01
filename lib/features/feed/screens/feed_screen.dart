@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../common/app_router.dart';
@@ -8,6 +9,7 @@ import '../../compose/compose_sheet.dart';
 import '../../mood/mood_sheet.dart';
 import '../../secret/screens/secret_reveal_screen.dart';
 import '../../secret/widgets/secret_opened_dialog.dart';
+import '../../pairing/couple_names.dart';
 import '../models/feed_item.dart';
 import '../models/sample_thread.dart';
 import '../widgets/emoji_burst.dart';
@@ -19,17 +21,17 @@ import '../widgets/reaction_tray.dart';
 /// The shared thread. Rendered from [viewerId]'s side — tapping the header
 /// avatar swaps perspective, which is how the sender and recipient layouts in
 /// the mocks are both reachable without two accounts.
-class FeedScreen extends StatefulWidget {
+class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key, this.viewerId = devonUid});
 
   /// uid of the signed-in reader. Comes from the auth provider at **P2-07**.
   final String viewerId;
 
   @override
-  State<FeedScreen> createState() => _FeedScreenState();
+  ConsumerState<FeedScreen> createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends State<FeedScreen> {
+class _FeedScreenState extends ConsumerState<FeedScreen> {
   final _burstKey = GlobalKey<EmojiBurstLayerState>();
   final _scrollController = ScrollController();
 
@@ -126,7 +128,7 @@ class _FeedScreenState extends State<FeedScreen> {
       AppRoutes.secretReveal,
       extra: SecretRevealArgs(
         secret: secret,
-        senderName: memberName(secret.senderId),
+        senderName: ref.read(memberNameResolverProvider)(secret.senderId),
         body: _secretBodies[secret.id] ?? '',
       ),
     );
@@ -156,7 +158,7 @@ class _FeedScreenState extends State<FeedScreen> {
     // shown here directly rather than pushed from a server.
     await SecretOpenedDialog.show(
       context,
-      readerName: memberName(_viewerId),
+      readerName: ref.read(memberNameResolverProvider)(_viewerId),
       openedAt: formatClockTime(openedAt),
       heldFullCountdown: result.heldFullCountdown,
     );
@@ -165,7 +167,9 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _setMood() async {
     final mood = await MoodSheet.show(
       context,
-      partnerName: memberName(partnerOf(_viewerId)),
+      partnerName: ref.read(memberNameResolverProvider)(
+        mockPartnerOf(_viewerId),
+      ),
     );
     if (mood == null || !mounted) return;
 
@@ -229,13 +233,15 @@ class _FeedScreenState extends State<FeedScreen> {
               SafeArea(
                 bottom: false,
                 child: FeedHeader(
-                  title: 'Maya & Devon',
+                  title: ref.watch(coupleTitleProvider),
                   subtitle: '994 days · since 4 November 2023',
                   streak: 47,
-                  viewerInitial: memberInitial(_viewerId),
+                  viewerInitial: ref.watch(memberInitialResolverProvider)(
+                    _viewerId,
+                  ),
                   onOpenSettings: () => context.push(AppRoutes.settings),
                   onSwapViewer: () =>
-                      setState(() => _viewerId = partnerOf(_viewerId)),
+                      setState(() => _viewerId = mockPartnerOf(_viewerId)),
                 ),
               ),
               Expanded(

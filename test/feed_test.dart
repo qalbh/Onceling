@@ -11,6 +11,8 @@ import 'package:couple_app/features/secret/screens/secret_reveal_screen.dart';
 import 'package:couple_app/features/settings/screens/settings_screen.dart';
 import 'package:couple_app/theme/app_theme.dart';
 
+import 'test_doubles.dart';
+
 Future<void> pumpFeed(WidgetTester tester, {String viewerId = devonUid}) async {
   tester.view.physicalSize = const Size(1170, 2532);
   tester.view.devicePixelRatio = 3.0;
@@ -56,6 +58,8 @@ Future<void> pumpFeed(WidgetTester tester, {String viewerId = devonUid}) async {
 
   await tester.pumpWidget(
     ProviderScope(
+      // M-02: the feed resolves names through providers now.
+      overrides: signedInOverrides(coupleId: 'couple-1'),
       child: MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
     ),
   );

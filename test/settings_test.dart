@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:couple_app/common/app_router.dart';
 import 'package:couple_app/features/auth/screens/sign_in_screen.dart';
+import 'package:couple_app/features/feed/screens/feed_screen.dart';
 import 'package:couple_app/features/pairing/screens/pairing_screen.dart';
 import 'package:couple_app/features/settings/screens/settings_screen.dart';
 import 'package:couple_app/features/settings/widgets/unpair_sheet.dart';
@@ -23,15 +24,18 @@ Future<void> pumpSettings(
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: overrides ?? signedInOverrides(),
+      overrides: overrides ?? signedInOverrides(coupleId: 'couple-1'),
       child: const OncelingApp(),
     ),
   );
   await tester.pumpAndSettle();
 
-  GoRouter.of(
-    tester.element(find.byType(PairingScreen)),
-  ).push(AppRoutes.settings);
+  // A paired session lands on the feed, an unpaired one on pairing; settings
+  // is reachable from either.
+  final anchor = find.byType(FeedScreen).evaluate().isNotEmpty
+      ? find.byType(FeedScreen)
+      : find.byType(PairingScreen);
+  GoRouter.of(tester.element(anchor)).push(AppRoutes.settings);
   await tester.pumpAndSettle();
 }
 
@@ -131,7 +135,10 @@ void main() {
 
   testWidgets('confirming unpair calls the callable', (tester) async {
     final pairing = FakePairingService();
-    await pumpSettings(tester, overrides: signedInOverrides(pairing: pairing));
+    await pumpSettings(
+      tester,
+      overrides: signedInOverrides(coupleId: 'couple-1', pairing: pairing),
+    );
 
     await tapRow(tester, 'Unpair from Devon');
     await tester.enterText(find.byType(TextField), 'UNPAIR');
@@ -148,6 +155,7 @@ void main() {
     await pumpSettings(
       tester,
       overrides: signedInOverrides(
+        coupleId: 'couple-1',
         pairing: FakePairingService(unpairError: Exception('offline')),
       ),
     );
