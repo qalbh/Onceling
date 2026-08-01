@@ -22,6 +22,52 @@ void main() {
     );
   }
 
+  group('sign-out ordering', () {
+    // Auth and the profile document do not clear together. Device traces of a
+    // sign-out showed signedIn=false while the profile stream still held the
+    // old paired value, for about 20ms. The gate is only correct here because
+    // the signed-out branch is evaluated before anything that reads coupleId.
+    test('routes on a stale profile during sign-out', () {
+      expect(
+        resolve(
+          isSignedIn: false,
+          profileExists: true,
+          coupleId: 'couple-1',
+          currentLocation: AppRoutes.settings,
+        ),
+        AppRoutes.signIn,
+        reason:
+            'a signed-out user must not be routed on a profile they no '
+            'longer have a session for',
+      );
+    });
+
+    test('a stale profile cannot reach the feed or the paired moment', () {
+      for (final location in [AppRoutes.feed, AppRoutes.settings]) {
+        expect(
+          resolve(
+            isSignedIn: false,
+            profileExists: true,
+            coupleId: 'couple-1',
+            currentLocation: location,
+          ),
+          AppRoutes.signIn,
+        );
+      }
+    });
+
+    test('the same window with no couple also lands on sign-in', () {
+      expect(
+        resolve(
+          isSignedIn: false,
+          profileExists: true,
+          currentLocation: AppRoutes.pairing,
+        ),
+        AppRoutes.signIn,
+      );
+    });
+  });
+
   group('loading auth', () {
     test('holds on splash from anywhere', () {
       expect(

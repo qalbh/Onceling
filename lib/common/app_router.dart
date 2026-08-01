@@ -49,6 +49,18 @@ String? resolveRedirect({
   required String currentLocation,
   bool justPaired = false,
 }) {
+  // The branch ORDER here is load-bearing, not stylistic.
+  //
+  // Sign-out is not atomic across the two streams: auth emits null first, and
+  // the profile stream keeps serving the *old* signed-in value for a few
+  // milliseconds after. Device traces caught the window — `signedIn=false`
+  // alongside `profExists=true, coupleId=<the old couple>`. Because the
+  // signed-out branch is tested before anything that reads `coupleId`, that
+  // window resolves to sign-in and the user leaves cleanly.
+  //
+  // Reorder these and a signing-out user routes to /feed or /paired on the
+  // strength of a profile they no longer have a session for. `routes on a
+  // stale profile during sign-out` in app_router_test.dart pins this.
   final wanted = switch ((isLoadingAuth, isSignedIn)) {
     (true, _) => AppRoutes.splash,
     (false, false) => AppRoutes.signIn,

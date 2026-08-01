@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../common/app_router.dart';
 import '../../../common/app_toast.dart';
 import '../../../common/providers.dart';
 import '../../../theme/app_theme.dart';
@@ -63,10 +62,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
     if (confirmed != true || !mounted) return;
 
-    // Mock path until the unpair Function exists. The real flow clears
-    // coupleId server-side and the gate lands on pairing — a signed-in user
-    // cannot reach sign-in, the redirect would bounce them straight back.
-    if (mounted) context.go(AppRoutes.pairing);
+    // No navigation here, for the same reason the auth sheet does not pop
+    // itself: the gate owns this transition. Until **P2-36** clears `coupleId`
+    // server-side there is nothing for the gate to react to, so confirming
+    // unpair correctly does nothing visible.
+    //
+    // The `context.go(AppRoutes.pairing)` that used to live here was worse than
+    // useless. Device traces showed it navigating to /pairing and the gate
+    // overriding it back to /feed on the very next evaluation — because
+    // `coupleId` is still set — which also unmounted this screen underneath
+    // the user. Manual navigation that the gate immediately contradicts is the
+    // same class of bug as popping a sheet the gate is already disposing.
   }
 
   @override

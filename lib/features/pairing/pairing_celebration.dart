@@ -28,8 +28,21 @@ class PairingCelebrationNotifier extends Notifier<String?> {
   @override
   String? build() {
     ref.listen(currentUserProvider, (_, next) => _observe(next.valueOrNull));
-    _observe(ref.read(currentUserProvider).valueOrNull);
+    // Seeds the flag only — deliberately NOT _observe.
+    //
+    // _observe writes `state`, and this runs inside build(), where the provider
+    // is not yet initialised: a write here throws "Tried to read the state of
+    // an uninitialized provider". It used to call _observe and was safe purely
+    // because `_sawUnpaired` is false on the first pass, so the write branch
+    // was unreachable. That was an accident of ordering, not a design, and it
+    // broke the moment a debug print touched `state` at the top of _observe.
+    _seedFromCurrent(ref.read(currentUserProvider).valueOrNull);
     return null;
+  }
+
+  /// The half of [_observe] that touches no state — safe to run during build.
+  void _seedFromCurrent(UserProfile? profile) {
+    if (profile != null && profile.coupleId == null) _sawUnpaired = true;
   }
 
   void _observe(UserProfile? profile) {

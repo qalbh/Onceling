@@ -128,11 +128,17 @@ void main() {
     expect(find.text('Unpair from Devon'), findsOneWidget);
   });
 
-  testWidgets('confirming unpair lands on pairing — not sign-in', (
+  testWidgets('confirming unpair does not navigate — the gate owns that', (
     tester,
   ) async {
-    // Unpairing does not sign you out: the account survives, the couple does
-    // not. The gate would bounce a signed-in user straight off sign-in anyway.
+    // Until P2-36 clears `coupleId` server-side there is nothing for the gate
+    // to react to, so confirming unpair correctly does nothing visible.
+    //
+    // This used to call context.go(pairing). Device traces showed the gate
+    // overriding it back to /feed on the very next evaluation — coupleId is
+    // still set — which unmounted this screen underneath the user. Manual
+    // navigation the gate immediately contradicts is the same class of bug as
+    // popping a sheet the gate is already disposing.
     await pumpSettings(tester);
 
     await tapRow(tester, 'Unpair from Devon');
@@ -141,9 +147,11 @@ void main() {
     await tester.tap(find.text('Unpair'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(SettingsScreen), findsNothing);
-    expect(find.byType(PairingScreen), findsOneWidget);
+    // The sheet closes; the screen stays put and nothing is routed.
+    expect(find.byType(SettingsScreen), findsOneWidget);
+    expect(find.byType(PairingScreen), findsNothing);
     expect(find.byType(SignInScreen), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('sign out from settings lands on sign-in without throwing', (
