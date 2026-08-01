@@ -24,7 +24,17 @@ enum SecretDuration {
 ///
 /// The body never lives here — it sits in `secretBodies/{itemId}` so a Function
 /// can hard delete it (**P3-01**) while this tombstone survives.
-enum SecretState { sealed, opened }
+/// Lifecycle of a secret.
+///
+/// Three states, not two, because brief §10 promises the body is readable only
+/// *while opening*. With two states "while opening" collapses to "while
+/// sealed" — every unopened secret, indefinitely — which guards against the
+/// wrong reader but not against retention, and retention is the thing §10
+/// promises against.
+///
+/// `opening` is bounded by [SecretMessage.openingStartedAt] plus the item's
+/// duration. Without that bound it is `sealed` with a longer name.
+enum SecretState { sealed, opening, opened }
 
 sealed class FeedItem {
   const FeedItem({
@@ -174,6 +184,7 @@ class SecretMessage extends FeedItem {
     required super.createdAt,
     required this.duration,
     this.secretState = SecretState.sealed,
+    this.openingStartedAt,
     this.openedAt,
     this.heldFullCountdown = false,
     super.reactions,
@@ -181,6 +192,12 @@ class SecretMessage extends FeedItem {
 
   final SecretDuration duration;
   final SecretState secretState;
+
+  /// When the reveal began. Null unless the secret is, or has been, opening.
+  ///
+  /// The read window runs from here for [duration]; **P3-01** sets it as part
+  /// of the `sealed -> opening` transition.
+  final DateTime? openingStartedAt;
 
   /// When the recipient opened it. Null while sealed.
   final DateTime? openedAt;
@@ -190,6 +207,9 @@ class SecretMessage extends FeedItem {
 
   bool get isOpened => secretState == SecretState.opened;
 
+  /// True while the body is readable — the state the rules gate on.
+  bool get isOpening => secretState == SecretState.opening;
+
   @override
   bool operator ==(Object other) =>
       other is SecretMessage &&
@@ -198,6 +218,7 @@ class SecretMessage extends FeedItem {
       other.createdAt == createdAt &&
       other.duration == duration &&
       other.secretState == secretState &&
+      other.openingStartedAt == openingStartedAt &&
       other.openedAt == openedAt &&
       other.heldFullCountdown == heldFullCountdown &&
       _mapEquals(other.reactions, reactions);
@@ -209,6 +230,7 @@ class SecretMessage extends FeedItem {
     createdAt,
     duration,
     secretState,
+    openingStartedAt,
     openedAt,
     heldFullCountdown,
   );

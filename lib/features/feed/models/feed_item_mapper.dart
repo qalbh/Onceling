@@ -6,6 +6,30 @@ import 'feed_item.dart';
 /// values. Never silently defaulted: an unrecognised type means the client is
 /// older than the data, and rendering it as a text message would quietly lose
 /// whatever it actually was.
+/// A `secretState` this build does not know.
+///
+/// Throws rather than defaulting, matching [UnknownFeedItemTypeException]. The
+/// state decides whether a body is readable, so guessing is worse than
+/// failing: silently reading an unknown state as `sealed` would treat an
+/// expired reveal as a fresh one.
+///
+/// Deliberately unlike the unknown-*duration* fallback, which degrades because
+/// a new duration option is additive and harmless. A new state is not.
+class UnknownSecretStateException implements Exception {
+  const UnknownSecretStateException({
+    required this.itemId,
+    required this.state,
+  });
+
+  final String itemId;
+  final Object? state;
+
+  @override
+  String toString() =>
+      'UnknownSecretStateException: item "$itemId" has secretState "$state", '
+      'expected one of sealed, opening, opened';
+}
+
 class UnknownFeedItemTypeException implements Exception {
   const UnknownFeedItemTypeException({
     required this.itemId,
@@ -30,6 +54,7 @@ const _typeStatus = 'status';
 const _typeSecret = 'secret';
 
 const _stateSealed = 'sealed';
+const _stateOpening = 'opening';
 const _stateOpened = 'opened';
 
 /// Builds a [FeedItem] from a Firestore document.
@@ -78,9 +103,8 @@ FeedItem fromFirestore(String id, Map<String, dynamic> data) {
       senderId: senderId,
       createdAt: createdAt!,
       duration: _readDuration(id, data['revealDurationSeconds']),
-      secretState: data['secretState'] == _stateOpened
-          ? SecretState.opened
-          : SecretState.sealed,
+      secretState: _readSecretState(id, data['secretState']),
+      openingStartedAt: _readTime(data['openingStartedAt']),
       openedAt: _readTime(data['openedAt']),
       heldFullCountdown: data['heldFullCountdown'] as bool? ?? false,
       reactions: reactions,
@@ -127,15 +151,19 @@ Map<String, dynamic> toFirestore(FeedItem item) {
     SecretMessage(
       :final duration,
       :final secretState,
+      :final openingStartedAt,
       :final openedAt,
       :final heldFullCountdown,
     ) =>
       {
         ...common,
         'type': _typeSecret,
-        'secretState': secretState == SecretState.opened
-            ? _stateOpened
-            : _stateSealed,
+        'secretState': switch (secretState) {
+          SecretState.sealed => _stateSealed,
+          SecretState.opening => _stateOpening,
+          SecretState.opened => _stateOpened,
+        },
+        'openingStartedAt': openingStartedAt,
         'revealDurationSeconds': duration.seconds,
         'openedAt': openedAt,
         'heldFullCountdown': heldFullCountdown,
@@ -171,6 +199,17 @@ Map<String, String> _readReactions(Object? value) {
 const _knownDurations = <int, SecretDuration>{
   10: SecretDuration.tenSeconds,
   30: SecretDuration.thirtySeconds,
+};
+
+/// Parses `secretState`, throwing on anything unrecognised.
+SecretState _readSecretState(String id, Object? raw) => switch (raw) {
+  _stateSealed => SecretState.sealed,
+  _stateOpening => SecretState.opening,
+  _stateOpened => SecretState.opened,
+  final unknown => throw UnknownSecretStateException(
+    itemId: id,
+    state: unknown,
+  ),
 };
 
 /// Never throws.

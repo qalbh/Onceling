@@ -115,6 +115,20 @@ void main() {
       );
     });
 
+    test('opening SecretMessage carries its window start', () {
+      expectRoundTrip(
+        SecretMessage(
+          id: 'i9b',
+          senderId: sender,
+          createdAt: createdAt,
+          duration: SecretDuration.thirtySeconds,
+          secretState: SecretState.opening,
+          openingStartedAt: DateTime(2026, 7, 30, 9, 30, 15),
+          reactions: const {},
+        ),
+      );
+    });
+
     test('opened SecretMessage', () {
       expectRoundTrip(
         SecretMessage(
@@ -177,6 +191,59 @@ void main() {
       );
       expect(data['revealDurationSeconds'], isNull);
       expect(data['secretState'], 'sealed');
+    });
+
+    test('an unknown secretState throws rather than guessing', () {
+      // The state decides whether a body is readable. Reading an unrecognised
+      // one as `sealed` would treat an expired reveal as a fresh one, so this
+      // deliberately does NOT degrade the way an unknown duration does.
+      expect(
+        () => fromFirestore('i-bad', {
+          'senderId': sender,
+          'type': 'secret',
+          'createdAt': createdAt,
+          'reactions': const <String, String>{},
+          'secretState': 'shredded',
+          'revealDurationSeconds': 30,
+        }),
+        throwsA(isA<UnknownSecretStateException>()),
+      );
+    });
+
+    test('a missing secretState throws too — it is not optional', () {
+      expect(
+        () => fromFirestore('i-none', {
+          'senderId': sender,
+          'type': 'secret',
+          'createdAt': createdAt,
+          'reactions': const <String, String>{},
+          'revealDurationSeconds': 30,
+        }),
+        throwsA(isA<UnknownSecretStateException>()),
+      );
+    });
+
+    test('each state round-trips through its wire value', () {
+      for (final (state, wire) in [
+        (SecretState.sealed, 'sealed'),
+        (SecretState.opening, 'opening'),
+        (SecretState.opened, 'opened'),
+      ]) {
+        final data = toFirestore(
+          SecretMessage(
+            id: 'i-state',
+            senderId: sender,
+            createdAt: createdAt,
+            duration: SecretDuration.thirtySeconds,
+            secretState: state,
+          ),
+        );
+        expect(data['secretState'], wire);
+        expect(
+          (fromFirestore('i-state', data) as SecretMessage).secretState,
+          state,
+        );
+      }
     });
 
     test('id and coupleId are not written as fields', () {
