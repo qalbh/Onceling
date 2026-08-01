@@ -241,7 +241,15 @@ Projects `qalb-coupleapp-dev` and `qalb-coupleapp-prod`. IDs are permanent.
   into the binary and leave no trace in the repo, so grepping the source tree proves
   nothing about what is running on a device. Verify with:
 
-      grep -c AUTOFLOW <app>/Frameworks/App.framework/flutter_assets/kernel_blob.bin
+      grep -c -a AUTOFLOW <app>/Frameworks/App.framework/flutter_assets/kernel_blob.bin
+
+  Without `-a`, BSD grep treats the file as binary and reports 0 whether or not the
+  string is present — the check silently passes on an instrumented build. Prove the
+  command works by grepping for a string you have watched render on screen; if that
+  returns 0, the command is broken, not the build.
+
+  `flutter run` reuses an existing kernel when nothing has changed, so an artifact
+  timestamp can legitimately predate the run. Timestamp is not evidence; content is.
 
   Source state and device state are different things. An instrumented build survived
   on both simulators for a full session after the source was clean, and prefilled the
