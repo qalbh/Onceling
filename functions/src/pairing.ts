@@ -567,9 +567,20 @@ export const respondToPairing = onCall(async (request) => {
       memberIds: [senderId, uid],
       memberNames,
       coupleName: null,
-      // OPEN (owner decision): default to the pairing date, or ask later?
-      // Left null rather than inventing a default nobody chose.
-      anniversaryDate: null,
+      // Owner decision, made: **default to the pairing date** (M-10).
+      //
+      // A couple joining today has a real anniversary the app cannot know, and
+      // asking for it during pairing adds friction to the flow brief §11 calls
+      // the single most important metric. So default now, edit later —
+      // **P2-39** owns the settings path, which has to be a callable because
+      // no client may write `couples`.
+      //
+      // Same sentinel as `createdAt`, not a copy of it: every
+      // `serverTimestamp()` in one commit resolves to the same instant, so
+      // these two are equal by construction rather than by a read-back. There
+      // is a test asserting exactly that, because "by construction" is a claim
+      // and not a proof.
+      anniversaryDate: FieldValue.serverTimestamp(),
       streakCount: 0,
       lastStreakDate: null,
       // OPEN (Q3): one couple timezone or per-device? Blocks P3-02. The accept

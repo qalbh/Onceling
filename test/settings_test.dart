@@ -57,15 +57,35 @@ Future<void> tapRow(WidgetTester tester, String label) async {
 
 void main() {
   testWidgets('shows the pair details and preferences', (tester) async {
-    await pumpSettings(tester);
+    await pumpSettings(
+      tester,
+      overrides: signedInOverrides(
+        coupleId: 'couple-1',
+        anniversaryDate: DateTime(2023, 11, 4),
+      ),
+    );
 
     expect(find.text('Maya'), findsOneWidget);
     expect(find.text('paired with Devon'), findsOneWidget);
     expect(find.text('Maya & Devon'), findsOneWidget);
+    // Read from the couple since M-10. It used to be a constructor default on
+    // SettingsScreen that nothing ever passed.
     expect(find.text('4 November 2023'), findsOneWidget);
     expect(find.text('47-day'), findsOneWidget);
     await revealRow(tester, 'Tap a slot to swap it.');
     expect(find.text('Tap a slot to swap it.'), findsOneWidget);
+  });
+
+  testWidgets('a couple paired before M-10 shows no invented date', (
+    tester,
+  ) async {
+    // No migration by design, so this is every existing couple. The row must
+    // read as unset rather than as a date nobody chose — P2-39 makes it
+    // editable.
+    await pumpSettings(tester);
+
+    expect(find.text('Not set'), findsOneWidget);
+    expect(find.text('4 November 2023'), findsNothing);
   });
 
   testWidgets('preference rows cycle through their values', (tester) async {

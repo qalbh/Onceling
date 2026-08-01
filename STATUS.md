@@ -126,11 +126,31 @@ Looks finished, backed by nothing. This is the real Phase 2 worklist.
       is that a mood now reaches the other person at all, which it did not before.*
 - [ ] **M-08** Reactions — singular `reaction` on two types; brief §9 wants plural on all
 - [ ] **M-09** Auth — none
-- [ ] **M-10** Feed header — `994 days · since 4 November 2023` is hardcoded.
-      Cannot be computed yet: `anniversaryDate` is null on every couple by design,
-      because defaulting it to the pairing date is an owner decision nobody has made.
-      `couples/{id}.createdAt` exists and would make the line honest the moment that
-      decision lands. The streak beside it is **M-06**.
+- [x] **M-10** Feed header — `994 days · since 4 November 2023` was hardcoded.
+      *Owner decision made: **the anniversary defaults to the pairing date.** A couple
+      joining today has a real anniversary the app cannot know, and asking for it
+      during pairing adds friction to the flow brief §11 calls the single most
+      important metric. Default now, edit later.*
+      *`respondToPairing` writes `anniversaryDate` as a second `serverTimestamp()`
+      sentinel rather than reading `createdAt` back — every sentinel in one commit
+      resolves to the same instant, so the two are equal by construction. Asserted to
+      the nanosecond, because "by construction" is a claim and a near-miss would show
+      as an off-by-one day count for a couple pairing near midnight.*
+      *The header line and the settings row are both computed from it now. The
+      settings row stopped being a `SettingsScreen` constructor default that nothing
+      ever passed.*
+      *Couples paired before this have no `anniversaryDate`, and there is **no
+      migration by design** — the same choice as `memberNames` at **M-02**. They
+      degrade neutrally: the header reads "your shared space" and the settings row
+      reads "Not set", never a blank and never a date nobody chose.*
+      *Day counting normalises both ends to midnight rather than using
+      `difference().inDays`, so the number ticks over at midnight instead of at
+      whatever hour the couple happened to pair. Local midnight per device — whose
+      midnight it is becomes a real question once two people are in different zones,
+      and that is **Q3**, still open.*
+      ***The settings edit path does not exist.*** `couples` denies every client write,
+      so changing an anniversary has to be a callable. That is **P2-39**, unbuilt.
+      The streak beside it is still **M-06**, still blocked on **Q2**.
 
 ---
 
@@ -349,6 +369,13 @@ there is data.
       required tests provable rather than self-referential: the query, the pagination
       window, the mapper and every write run for real against an in-memory backend,
       with only `firestoreProvider` overridden.*
+- [ ] **P2-39** `setAnniversary(date)` callable — the settings edit path for **M-10**.
+      A callable, not a write: `couples` denies every client write in every direction,
+      which is what makes `coupleId` and the rest of that document trustworthy.
+      Must validate that the caller is a member of the couple it names, reject a date
+      in the future, and bound how far back it may be set. Until it exists the
+      anniversary is whatever the pairing date was, and a couple with a real earlier
+      date has no way to say so.
 - [ ] **P2-13** Photo upload to Cloud Storage. *Enable the Storage emulator first —
       until it is on, Functions calls to Cloud Storage hit the real dev bucket.*
       *The compose sheet's "Add photo" chip is still a no-op after **P2-12** — the only
@@ -679,17 +706,36 @@ Non-blocking. Fix when convenient.
       made to the other — and `flutter test` alone will not catch the drift, because
       the Dart side has no rules engine behind it. Same shape as the
       `pairingCodeAlphabet` mirror.
-- [ ] **D-14** The functions suite has now **three times** reported one failure that
-      passed on retry with no code change — suspected stale build or a
-      `clearFirestore()` race between parallel files. Not diagnosed. If it recurs,
-      capture WHICH test failed before re-running, rather than retrying and reporting
-      the good number. An intermittent failure in the suite that proves the pairing
-      invariant is worth understanding, not tolerating.
+- [x] **D-14** The functions suite intermittently reported one failure that passed on
+      retry with no code change. **Diagnosed and fixed.**
+      *It was never a stale build or a `clearFirestore()` race — both were guesses.
+      It was `assertPairingInvariant` racing **P2-36**'s sweep trigger. Unpair is
+      two-phase: separation is atomic, deletion fires a moment later. In that window
+      the couple document legitimately exists listing two members who no longer point
+      back at it, and the invariant read that as broken. Sweep wins the race → couple
+      gone → pass. Test wins → transitional state → fail. Same code, different
+      outcome, which is exactly how it presented.*
+      *The fix does not skip unpaired couples, which would trade a flake for a blind
+      spot. It asserts the thing that must still hold mid-sweep: **both** members are
+      freed, never one. One cleared and one still bound is the orphan the transaction
+      exists to prevent, and that now fails loudly even during the window.*
+      *Found only because the run named the failing tests. It had been invisible for
+      three occurrences.*
       *Third occurrence at **P2-12**: 78/79, then 79/79 on each of three subsequent
       runs. The identity was **not** captured — the run was piped through a
       summary-only `grep`, so the `not ok` line was discarded before it could be read.
       That is the exact mistake this entry was written to prevent. Run the suite to a
       **retained log file** and grep the file, never the pipe.*
+      *Fixed structurally rather than remembered: `npm run test:functions` now goes
+      through `rules-tests/run-suite.mjs`, which tees the run to `logs/functions.log`
+      and prints every `not ok` line on failure. **The log file is the guarantee** —
+      it survives whatever the caller did to the streams. The stderr print is a
+      secondary help and deliberately does not overclaim: it defeats
+      `npm test | grep …` but *not* `npm test 2>&1 | grep …`, which was the actual
+      mistake, because that merges stderr into the pipe before the filter runs. Both
+      cases verified by sabotaging a test, not assumed. The identity is still not
+      captured for the three past occurrences, so the underlying flake is still
+      undiagnosed — this only guarantees the next one is legible.*
 
 ---
 

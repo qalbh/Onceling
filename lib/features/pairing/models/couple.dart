@@ -8,6 +8,7 @@ class Couple {
     required this.memberIds,
     required this.memberNames,
     this.coupleName,
+    this.anniversaryDate,
     this.streakCount = 0,
     this.moodEmoji,
     this.moodText,
@@ -29,6 +30,19 @@ class Couple {
 
   /// Null until the pair names themselves; nothing sets it yet.
   final String? coupleName;
+
+  /// The date the couple counts from (**M-10**).
+  ///
+  /// Defaulted to the pairing date by `respondToPairing` — the owner's
+  /// decision, taken because a couple joining today has a real anniversary the
+  /// app cannot know, and asking during pairing adds friction to the flow
+  /// brief §11 calls the most important metric.
+  ///
+  /// **Null on every couple paired before that landed.** No migration by
+  /// design, exactly as with [memberNames]; callers degrade to a neutral line
+  /// rather than showing a blank or a date that is not true. **P2-39** adds
+  /// the settings edit path.
+  final DateTime? anniversaryDate;
 
   final int streakCount;
 
@@ -64,6 +78,7 @@ class Couple {
           ) ??
           const {},
       coupleName: data['coupleName'] as String?,
+      anniversaryDate: _readTime(data['anniversaryDate']),
       streakCount: (data['streakCount'] as num?)?.toInt() ?? 0,
       moodEmoji: data['moodEmoji'] as String?,
       moodText: data['moodText'] as String?,

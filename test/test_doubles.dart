@@ -185,6 +185,9 @@ Couple fakeCouple({
   String partnerName = 'Devon',
   bool withNames = true,
   String? coupleName,
+  // Null models a couple paired before M-10, exactly as withNames: false
+  // models one paired before M-02. Both degrade, neither migrates.
+  DateTime? anniversaryDate,
 }) => Couple(
   id: id,
   memberIds: [uid, partnerUid],
@@ -192,6 +195,7 @@ Couple fakeCouple({
   // design, so the client must degrade rather than blank.
   memberNames: withNames ? {uid: myName, partnerUid: partnerName} : const {},
   coupleName: coupleName,
+  anniversaryDate: anniversaryDate,
 );
 
 /// Overrides for a signed-out session: the gate lands on sign-in.
@@ -228,6 +232,7 @@ List<Override> signedInOverrides({
   PairingRequest? outgoing,
   bool withNames = true,
   String partnerUid = 'uid-partner',
+  DateTime? anniversaryDate,
   // A fake Firestore, when the test exercises a real query. Overriding the
   // root provider rather than the feed's own means the query, the mapper and
   // the writes all run for real — only the backend is fake.
@@ -262,6 +267,7 @@ List<Override> signedInOverrides({
             // whichever of the two the test is signed in as.
             partnerName: displayName == 'Devon' ? 'Maya' : 'Devon',
             withNames: withNames,
+            anniversaryDate: anniversaryDate,
           ),
   ),
 ];

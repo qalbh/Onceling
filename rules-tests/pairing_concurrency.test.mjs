@@ -284,6 +284,10 @@ describe("P2-18 — concurrent accepts", () => {
       await writeDoc(`couples/${existing}`, {
         memberIds: [s.uid, other.uid],
         coupleName: null,
+        // Null on purpose, and still correct after M-10: this hand-written
+        // fixture models a couple that already existed, i.e. one paired before
+        // the anniversary default landed. There is no migration by design, so
+        // legacy couples really do look like this.
         anniversaryDate: null,
         streakCount: 7,
         lastStreakDate: null,
@@ -387,10 +391,17 @@ describe("P2-09b — accept", () => {
     assert.equal(couple.streakCount, 0);
     assert.equal(couple.lastStreakDate, null);
     assert.equal(couple.coupleName, null);
-    // Both left null on purpose — see the OPEN comments in pairing.ts.
-    assert.equal(couple.anniversaryDate, null);
+    // timezone is still null on purpose — Q3 is open, see pairing.ts.
     assert.equal(couple.timezone, null);
     assert.ok(couple.createdAt != null);
+    // anniversaryDate stopped being null at M-10: the owner decided it
+    // defaults to the pairing date. Asserted here as "the same instant as
+    // createdAt" rather than merely non-null, so this test still pins the
+    // shape of the accept rather than going vague about it.
+    assert.equal(
+      couple.anniversaryDate.toMillis(),
+      couple.createdAt.toMillis(),
+    );
 
     for (const uid of [a.uid, b.uid]) {
       const user = await readDoc(`users/${uid}`);

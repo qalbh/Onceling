@@ -120,4 +120,85 @@ void main() {
     expect(initial('uid-partner'), 'D');
     expect(initial('nobody'), unknownMemberName.characters.first.toUpperCase());
   });
+
+  group('M-10 — the anniversary line', () {
+    List<Override> withAnniversary(DateTime? date, {DateTime? now}) => [
+      ...signedInOverrides(coupleId: 'couple-1', anniversaryDate: date),
+      if (now != null) nowProvider.overrideWithValue(() => now),
+    ];
+
+    test('reads as a day count and a date', () async {
+      final c = containerWith(
+        withAnniversary(
+          DateTime(2023, 11, 4),
+          // Pinned: a test that asserts a day count must not read the wall
+          // clock, or it changes its own answer overnight.
+          now: DateTime(2026, 7, 25),
+        ),
+      );
+      await settle(c);
+      expect(
+        c.read(anniversaryLineProvider),
+        '994 days · since 4 November 2023',
+      );
+    });
+
+    test(
+      'a couple with no anniversary degrades neutrally, not blank',
+      () async {
+        // Every couple paired before M-10. No migration by design, same as
+        // memberNames — so this must read as something true, not as an error
+        // and not as a date nobody chose.
+        final c = containerWith(withAnniversary(null));
+        await settle(c);
+
+        expect(c.read(anniversaryLineProvider), unknownAnniversary);
+        expect(c.read(anniversaryLineProvider), isNotEmpty);
+        expect(c.read(anniversaryLineProvider).contains('1970'), isFalse);
+        expect(c.read(anniversaryLineProvider).contains('days'), isFalse);
+      },
+    );
+
+    test('the day it is set, it does not read "0 days"', () async {
+      // Pairing day. A zero count reads as a bug rather than as today.
+      final c = containerWith(
+        withAnniversary(
+          DateTime(2026, 7, 25, 9),
+          now: DateTime(2026, 7, 25, 23),
+        ),
+      );
+      await settle(c);
+      expect(c.read(anniversaryLineProvider), 'since 25 July 2026');
+    });
+
+    test('one day is singular', () async {
+      final c = containerWith(
+        withAnniversary(DateTime(2026, 7, 24), now: DateTime(2026, 7, 25)),
+      );
+      await settle(c);
+      expect(c.read(anniversaryLineProvider), '1 day · since 24 July 2026');
+    });
+
+    test('the count ticks at midnight, not at the hour it was set', () async {
+      // 11pm yesterday to 1am today is two hours, and one day.
+      final c = containerWith(
+        withAnniversary(
+          DateTime(2026, 7, 24, 23),
+          now: DateTime(2026, 7, 25, 1),
+        ),
+      );
+      await settle(c);
+      expect(c.read(anniversaryLineProvider), '1 day · since 24 July 2026');
+    });
+
+    test('settings shows the date alone, and says so when unset', () async {
+      final set = containerWith(withAnniversary(DateTime(2023, 11, 4)));
+      await settle(set);
+      expect(set.read(anniversaryLabelProvider), '4 November 2023');
+
+      final unset = containerWith(withAnniversary(null));
+      await settle(unset);
+      expect(unset.read(anniversaryLabelProvider), 'Not set');
+    });
+  });
 }

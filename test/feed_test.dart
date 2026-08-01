@@ -14,6 +14,7 @@ import 'package:couple_app/features/feed/screens/feed_screen.dart';
 import 'package:couple_app/features/feed/widgets/emoji_tray.dart';
 import 'package:couple_app/features/feed/widgets/feed_header.dart';
 import 'package:couple_app/features/feed/widgets/feed_states.dart';
+import 'package:couple_app/features/pairing/couple_names.dart';
 import 'package:couple_app/features/secret/screens/secret_reveal_screen.dart';
 import 'package:couple_app/features/settings/screens/settings_screen.dart';
 import 'package:couple_app/theme/app_theme.dart';
@@ -235,6 +236,42 @@ void main() {
       }
 
       expect(find.text('from them'), findsOneWidget);
+    });
+
+    testWidgets('the header line is computed, not hardcoded (M-10)', (
+      tester,
+    ) async {
+      final db = FakeFirebaseFirestore();
+      await seedItem(db, coupleId: ourCouple, senderId: them, body: 'hello');
+
+      await pumpFeed(
+        tester,
+        db: db,
+        extra: [
+          ...signedInOverrides(
+            coupleId: ourCouple,
+            firestore: db,
+            anniversaryDate: DateTime(2023, 11, 4),
+          ),
+          nowProvider.overrideWithValue(() => DateTime(2026, 7, 25)),
+        ],
+      );
+
+      // The exact string that used to be a literal in the widget.
+      expect(find.text('994 days · since 4 November 2023'), findsOneWidget);
+    });
+
+    testWidgets('a couple with no anniversary gets a neutral header line', (
+      tester,
+    ) async {
+      // Every couple paired before M-10 — no migration by design.
+      final db = FakeFirebaseFirestore();
+      await seedItem(db, coupleId: ourCouple, senderId: them, body: 'hello');
+      await pumpFeed(tester, db: db);
+
+      expect(find.text(unknownAnniversary), findsOneWidget);
+      expect(find.textContaining('994'), findsNothing);
+      expect(find.textContaining('1970'), findsNothing);
     });
 
     test('the header exposes no viewer-swap hook at all', () {

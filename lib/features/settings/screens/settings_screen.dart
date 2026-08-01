@@ -15,13 +15,11 @@ import '../widgets/settings_rows.dart';
 import '../widgets/unpair_sheet.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({
-    super.key,
-    this.anniversary = '4 November 2023',
-    this.streak = 47,
-  });
+  const SettingsScreen({super.key, this.streak = 47});
 
-  final String anniversary;
+  /// **M-06**, still mock and still blocked on **Q2**. The anniversary beside
+  /// it stopped being a parameter at **M-10** — it is a real field now, read
+  /// from the couple rather than passed in, and nothing ever passed it.
   final int streak;
 
   @override
@@ -95,7 +93,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   label: 'Couple name',
                   value: ref.watch(coupleTitleProvider),
                 ),
-                SettingsRow(label: 'Anniversary', value: widget.anniversary),
+                SettingsRow(
+                  label: 'Anniversary',
+                  value: ref.watch(anniversaryLabelProvider),
+                ),
                 SettingsRow(label: 'Streak', value: '${widget.streak}-day'),
               ],
             ),

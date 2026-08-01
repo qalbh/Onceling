@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../common/providers.dart';
+import '../../common/time_format.dart';
 import 'models/couple.dart';
 
 /// Shown where a name is required but none is known.
@@ -36,6 +37,47 @@ final partnerNameProvider = Provider<String>((ref) {
       // Pre-M-02 couple, or a name the server could not resolve.
       ? unknownMemberName
       : name;
+});
+
+/// Shown in place of the anniversary line when no date is known.
+///
+/// Same shape of answer as [unknownMemberName]: neutral and true, rather than
+/// blank or a date the couple never chose. Every couple paired before **M-10**
+/// is in this state, and there is no migration by design.
+const unknownAnniversary = 'your shared space';
+
+/// The line under the couple's name: `994 days · since 4 November 2023`.
+///
+/// Computed from the couple's `anniversaryDate`, which `respondToPairing`
+/// defaults to the pairing date (**M-10**). It was hardcoded until then, on a
+/// screen that had started showing real messages.
+///
+/// Reads the clock through [nowProvider] so a test asserting a day count can
+/// pin it — otherwise the test would change its own answer overnight.
+final anniversaryLineProvider = Provider<String>((ref) {
+  final anniversary = ref.watch(coupleProvider).valueOrNull?.anniversaryDate;
+  if (anniversary == null) return unknownAnniversary;
+
+  final days = daysBetween(anniversary, ref.watch(nowProvider)());
+  // Day zero is the day you paired, and "0 days" reads as an error rather than
+  // as today. A negative count would mean a clock skew or a bad document;
+  // neither is worth rendering.
+  if (days < 1) return 'since ${formatCalendarDate(anniversary)}';
+  return '$days day${days == 1 ? '' : 's'} · '
+      'since ${formatCalendarDate(anniversary)}';
+});
+
+/// The clock, behind a provider so tests can pin it.
+final nowProvider = Provider<DateTime Function()>((ref) => DateTime.now);
+
+/// The anniversary as a settings row shows it — the date alone, no day count.
+///
+/// Falls back to "Not set" rather than [unknownAnniversary]: in a list of
+/// editable settings, an empty-looking value is the correct register, and it
+/// reads as the affordance **P2-39** will make real.
+final anniversaryLabelProvider = Provider<String>((ref) {
+  final anniversary = ref.watch(coupleProvider).valueOrNull?.anniversaryDate;
+  return anniversary == null ? 'Not set' : formatCalendarDate(anniversary);
 });
 
 /// What the thread and settings call this pair.

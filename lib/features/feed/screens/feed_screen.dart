@@ -197,9 +197,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 bottom: false,
                 child: FeedHeader(
                   title: ref.watch(coupleTitleProvider),
-                  // M-10: still mock. `anniversaryDate` is an open owner
-                  // decision, so this cannot be computed honestly yet.
-                  subtitle: '994 days · since 4 November 2023',
+                  subtitle: ref.watch(anniversaryLineProvider),
+                  // M-06: still mock, and still blocked on Q2.
                   streak: 47,
                   viewerInitial: ref.watch(memberInitialResolverProvider)(
                     _viewerId,

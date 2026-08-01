@@ -1128,3 +1128,68 @@ describe("setMood (P2-12 / M-07)", () => {
     assert.equal((await readAll("items"))[0].emoji, "☕");
   });
 });
+
+describe("respondToPairing — anniversary defaults to the pairing date (M-10)", () => {
+  async function pairedCouple() {
+    const a = await newUser();
+    const b = await newUser();
+    await seedProfile(a.uid);
+    await seedProfile(b.uid);
+    const { code } = (await b.call("ensurePairingCode")).data;
+    const { requestId } = (await a.call("requestPairing", { code })).data;
+    const { coupleId } = (
+      await b.call("respondToPairing", { requestId, accept: true })
+    ).data;
+    return { coupleId };
+  }
+
+  test("anniversaryDate is set, not null", async () => {
+    // It used to be null pending an owner decision. The decision is made:
+    // default to the pairing date, editable later via P2-39.
+    const { coupleId } = await pairedCouple();
+    const couple = await readDoc(`couples/${coupleId}`);
+
+    assert.ok(couple.anniversaryDate, "anniversaryDate was not written");
+    assert.ok(
+      typeof couple.anniversaryDate.toDate === "function",
+      "anniversaryDate is not a Timestamp",
+    );
+  });
+
+  test("it equals createdAt EXACTLY, not approximately", async () => {
+    // The write uses a second serverTimestamp() sentinel rather than reading
+    // createdAt back. That relies on every sentinel in one commit resolving to
+    // the same instant — true, but a claim worth proving rather than trusting,
+    // because a near-miss would show as an off-by-one in the day count on the
+    // day a couple pairs near midnight.
+    const { coupleId } = await pairedCouple();
+    const couple = await readDoc(`couples/${coupleId}`);
+
+    assert.equal(
+      couple.anniversaryDate.toMillis(),
+      couple.createdAt.toMillis(),
+      "anniversaryDate and createdAt resolved to different instants",
+    );
+    assert.equal(
+      couple.anniversaryDate.nanoseconds,
+      couple.createdAt.nanoseconds,
+      "same millisecond but different nanoseconds",
+    );
+  });
+
+  test("it is a server value, not one the client could choose", async () => {
+    // Nothing in the request carries a date, and no client may write couples
+    // in any case — but the shape of the guarantee matters: the anniversary is
+    // whatever the server said the pairing instant was.
+    const before = Date.now();
+    const { coupleId } = await pairedCouple();
+    const after = Date.now();
+    const couple = await readDoc(`couples/${coupleId}`);
+
+    const at = couple.anniversaryDate.toMillis();
+    assert.ok(
+      at >= before - 60_000 && at <= after + 60_000,
+      `anniversary ${at} is outside the window this pairing happened in`,
+    );
+  });
+});
