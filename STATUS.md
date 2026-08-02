@@ -1,6 +1,6 @@
 # Onceling — Status
 
-**Phase 2 of 4 · Last updated: 2026-08-02**
+**Phase 2 of 4 · Last updated: 2026-08-03**
 
 **Now:** P2-13 — photo upload to Cloud Storage (enable the Storage emulator first)
 
@@ -43,8 +43,9 @@ Read this before editing. Applies to Claude Code and to me.
 
 ## Decisions — blocked on the owner
 
-Nothing below is code. Each one changes what gets built. Phase 3 should not start
-until Q1, Q2 and Q3 are answered.
+Nothing below is code. Each one changes what gets built. **Q1, Q2 and Q3 are all
+answered, so the Phase 3 gate is lifted.** Q4 remains open and gates nothing
+immediate — it decides whether trademark checks matter, not what gets built next.
 
 - [x] **Q1** Hard delete or short encrypted retention for opened secrets? **Hard
       delete.** No retention, no recoverable copy, no support path. Once a secret is
@@ -59,9 +60,23 @@ until Q1, Q2 and Q3 are answered.
       accidental open is unrecoverable." The mitigation is interaction design, not
       storage — press-and-hold is already deliberate, and **P3-01** should consider a
       confirmation before the countdown starts.*
-- [ ] **Q2** Are streaks in, and if in, are they forgiving?
-      *Currently in and unforgiving. Brief §12 flags coercion risk.*
-- [ ] **Q3** One couple timezone, or per-device? *Blocks the streak Function.*
+- [x] **Q2** Are streaks in, and if in, are they forgiving? **In, and forgiving.**
+      One grace day per week: a missed day does not reset the count. A genuinely
+      broken streak shows the number faded rather than zeroed — the history is not
+      erased for having been interrupted. Milestone celebrations at 100, 365, 500 and
+      1000 stay: those are anniversaries, a different emotional register from a daily
+      obligation. Brief §12 flags that streaks in a romantic context risk turning
+      affection into obligation; forgiveness is the mitigation. Decided 2026-08-02.
+- [x] **Q3** One couple timezone, or per-device? **One couple timezone**, stored on
+      `couples/{id}` as an IANA name (`Asia/Karachi`), never a UTC offset — offsets
+      break twice a year under DST. Set at pairing from the accepting partner's
+      device, editable later via **P2-39**'s callable.
+      Per-device was rejected because a streak is a couple-level fact: two devices
+      evaluating their own midnights show the same relationship as 47 and 46, and two
+      people arguing about whose phone is right is the conflict brief §12 warns about.
+      Asking at pairing was rejected as friction on the flow brief §11 calls the
+      single most important metric. Q2's grace day absorbs the edge cases a shared
+      zone creates for a long-distance couple. Decided 2026-08-02.
 - [ ] **Q4** Any monetisation intent? *Decides whether trademark checks matter.*
 - [x] **Q5** Export on unpair, or destroy? **Destroy, no export.** *Unpair copy
       promises total erasure.* Implemented in **P2-36**'s sweep: items go with their
@@ -248,9 +263,11 @@ there is data.
       would not. Double tap returns the existing `coupleId` instead of throwing.
       `couples/{coupleId}` rules landed in the same change — members read, no client
       write at all; auditor scored 5/5.*
-      *`anniversaryDate` and `timezone` are written null and left open: neither has an
-      owner decision, and inventing a default would bake in an answer nobody chose.
-      `timezone` is **Q3**, which blocks **P3-02**.*
+      *`anniversaryDate` and `timezone` were both written null pending owner
+      decisions. Both are decided now: `anniversaryDate` defaults to the pairing date
+      (**M-10**, built), and `timezone` is one shared IANA zone taken from the
+      accepting partner's device (**Q3**). The `timezone` write is **P2-40**, unbuilt
+      — it needs the client to send its zone, so it is a code change, not a comment.*
       *Neither expire path writes `settledAt`. A timestamp on an expired request is a
       timing oracle — 'expired' seven days after `createdAt` is **P2-28**'s sweep,
       'expired' twenty minutes after is a person having decided, which is exactly what
@@ -387,6 +404,15 @@ there is data.
       required tests provable rather than self-referential: the query, the pagination
       window, the mapper and every write run for real against an in-memory backend,
       with only `firestoreProvider` overridden.*
+- [ ] **P2-40** Write `couples/{id}.timezone` at pairing — the **Q3** decision.
+      `respondToPairing` still writes it null. The zone is an IANA name taken from the
+      accepting partner's device, so the client has to send it: `requestPairing` and
+      `respondToPairing` gain a `timezone` argument, validated server-side against a
+      known-zone list rather than trusted as a free string. **Never a UTC offset** —
+      offsets break twice a year under DST.
+      Blocks **P3-02**, which has nothing to read for the day boundary until this
+      lands. **P2-39**'s callable should be able to change it afterwards, alongside
+      the anniversary; a couple that moves should not have to re-pair.
 - [ ] **P2-39** `setAnniversary(date)` callable — the settings edit path for **M-10**.
       A callable, not a write: `couples` denies every client write in every direction,
       which is what makes `coupleId` and the rest of that document trustworthy.
@@ -642,8 +668,19 @@ there is data.
       `revealDurationSeconds`, so the rule has no clock to bound them with and gates
       on state alone. Until P3-01 exists they stay readable for as long as they stay
       `opening`.*
-- [ ] **P3-02** Streak calculation Function *(needs Q3)*
-- [ ] **P3-03** Milestone triggers — day 100, 365, 500, 1000 *(needs Q2)*
+- [ ] **P3-02** Streak calculation Function
+      *Reads `couples/{id}.timezone` for the day boundary — one shared zone, an IANA
+      name, never a UTC offset (**Q3**). **One grace day per week: a missed day does
+      not reset the count**, and a genuinely broken streak renders faded rather than
+      zeroed, so the history survives having been interrupted (**Q2**). There is no
+      hard reset anywhere in this function.*
+      *Depends on **P2-40** — `timezone` is still written null, so this has nothing to
+      read until that lands.*
+- [ ] **P3-03** Milestone triggers — day 100, 365, 500, 1000
+      *Unaffected by **Q2**'s forgiveness: milestones count days since
+      `anniversaryDate` (**M-10**), not consecutive posting. They are anniversaries,
+      a different register from a daily obligation, which is why they survive a
+      forgiving streak unchanged.*
 - [ ] **P3-04** FCM fan-out — secret payloads carry no body and no preview
 - [ ] **P3-05** Rate limiting on any future secret-bearing check. *The pairing half
       moved forward to **P2-27** — it is a **P2-09** dependency, not later polish.*
@@ -707,6 +744,20 @@ Non-blocking. Fix when convenient.
       reporting the winner's document. `.create()` was kept over `.set()` deliberately
       — `set` would clobber a document written between the existence check and the
       write. Recheck if the function's read/write shape changes.
+- [ ] **D-18** A **second**, different intermittent in the functions suite, seen once
+      on 2026-08-03: `clearFirestore()` threw gRPC `CANCELLED` (499, "call already
+      cancelled") from a `beforeEach` hook, failing `P2-18 — concurrent accepts`. A
+      hook failure, not an assertion — no product behaviour was implicated, and two
+      subsequent runs were clean.
+      *Recorded rather than shrugged off because **D-14** was closed against a
+      different cause (the sweep race), and it would be easy to read that as "the
+      flake is fixed" and misfile this one. It is not the same thing.*
+      *Suspected trigger: `build:watch` recompiling `functions/lib/` while the suite
+      was running — the run started moments after a `pairing.ts` edit, and a functions
+      reload mid-suite could plausibly disturb the emulator connection. Untested. If
+      it recurs, note whether a rebuild was in flight before blaming the emulator.*
+      *The identity was captured this time without effort, because `run-suite.mjs`
+      names failures and retains the log. That is what D-14 bought.*
 - [ ] **D-15** Feed pagination is one growing `limit`, so page N re-delivers the whole
       window: N pages cost 30+60+90+… document reads, quadratic in pages. Chosen at
       **P2-12** so every page stays live and a reaction on an old message updates in

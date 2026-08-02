@@ -583,8 +583,14 @@ export const respondToPairing = onCall(async (request) => {
       anniversaryDate: FieldValue.serverTimestamp(),
       streakCount: 0,
       lastStreakDate: null,
-      // OPEN (Q3): one couple timezone or per-device? Blocks P3-02. The accept
-      // does not need it, so it stays null until Q3 is answered.
+      // Q3 is decided: **one couple timezone**, an IANA name taken from the
+      // accepting partner's device, never a UTC offset — offsets break twice a
+      // year under DST.
+      //
+      // Still null here because writing it is a client change, not a server
+      // one: the zone has to arrive in the request, and it must be validated
+      // against a known-zone list rather than trusted as a free string. That
+      // is **P2-40**, and **P3-02** has no day boundary to read until it lands.
       timezone: null,
       createdAt: FieldValue.serverTimestamp(),
     });
