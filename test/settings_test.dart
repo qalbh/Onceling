@@ -62,6 +62,7 @@ void main() {
       overrides: signedInOverrides(
         coupleId: 'couple-1',
         anniversaryDate: DateTime(2023, 11, 4),
+        streakCount: 47,
       ),
     );
 
@@ -71,6 +72,7 @@ void main() {
     // Read from the couple since M-10. It used to be a constructor default on
     // SettingsScreen that nothing ever passed.
     expect(find.text('4 November 2023'), findsOneWidget);
+    // Read from the couple since M-06. Was a constructor default of 47.
     expect(find.text('47-day'), findsOneWidget);
     await revealRow(tester, 'Tap a slot to swap it.');
     expect(find.text('Tap a slot to swap it.'), findsOneWidget);
@@ -115,11 +117,15 @@ void main() {
   });
 
   testWidgets('unpair requires typing the word exactly', (tester) async {
-    await pumpSettings(tester);
+    await pumpSettings(
+      tester,
+      overrides: signedInOverrides(coupleId: 'couple-1', streakCount: 47),
+    );
 
     await tapRow(tester, 'Unpair from Devon');
 
     expect(find.text('Are you sure?'), findsOneWidget);
+    // The sheet names what is being destroyed, streak included — real now.
     expect(find.textContaining('47-day streak'), findsOneWidget);
 
     FilledButton unpairButton() => tester.widget<FilledButton>(

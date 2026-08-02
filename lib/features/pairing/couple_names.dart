@@ -77,6 +77,21 @@ final anniversaryLabelProvider = Provider<String>((ref) {
   return anniversary == null ? 'Not set' : formatCalendarDate(anniversary);
 });
 
+/// The streak as the header and settings show it (**M-06**, **P3-02**).
+///
+/// Was a hardcoded `47` in two places. [faded] carries **Q2**'s decision that a
+/// broken streak keeps its number and loses its colour, rather than dropping to
+/// zero and erasing the history for having been interrupted.
+typedef StreakDisplay = ({int count, bool faded});
+
+final streakProvider = Provider<StreakDisplay>((ref) {
+  final couple = ref.watch(coupleProvider).valueOrNull;
+  return (
+    count: couple?.streakCount ?? 0,
+    faded: couple?.isStreakFaded ?? false,
+  );
+});
+
 /// What the thread and settings call this pair.
 ///
 /// `coupleName` is null on every real couple — nothing sets it yet — so the

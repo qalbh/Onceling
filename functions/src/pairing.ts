@@ -9,6 +9,8 @@ import {
 } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 
+import { normaliseTimezone } from "./timezone.js";
+
 if (getApps().length === 0) initializeApp();
 
 /**
@@ -392,6 +394,18 @@ export const respondToPairing = onCall(async (request) => {
     });
   }
 
+  // **P2-40 / Q3.** The couple's timezone, taken from the accepting partner's
+  // device — one shared zone, because a streak is a couple-level fact and two
+  // devices evaluating their own midnights would show the same relationship as
+  // 47 and 46.
+  //
+  // Validated, never trusted: this feeds the day boundary P3-02 computes against,
+  // and `Intl` alone would accept a UTC offset like `+05:00`, which is the one
+  // form Q3 rules out. An unrecognised or missing zone becomes null rather than
+  // an error — see normaliseTimezone for why failing the accept would be the
+  // wrong trade.
+  const timezone = normaliseTimezone(request.data?.timezone);
+
   const db = getFirestore();
   const requestRef = db.doc(`pairingRequests/${requestId}`);
 
@@ -583,15 +597,10 @@ export const respondToPairing = onCall(async (request) => {
       anniversaryDate: FieldValue.serverTimestamp(),
       streakCount: 0,
       lastStreakDate: null,
-      // Q3 is decided: **one couple timezone**, an IANA name taken from the
-      // accepting partner's device, never a UTC offset — offsets break twice a
-      // year under DST.
-      //
-      // Still null here because writing it is a client change, not a server
-      // one: the zone has to arrive in the request, and it must be validated
-      // against a known-zone list rather than trusted as a free string. That
-      // is **P2-40**, and **P3-02** has no day boundary to read until it lands.
-      timezone: null,
+      // **Q3**, written by **P2-40**: one shared IANA zone from the accepting
+      // partner's device. Null when the device could not name it or named
+      // something invalid; P3-02 falls back rather than skipping the couple.
+      timezone,
       createdAt: FieldValue.serverTimestamp(),
     });
 

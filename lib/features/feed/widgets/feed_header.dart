@@ -43,6 +43,7 @@ class FeedHeader extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.streak,
+    required this.streakFaded,
     required this.viewerInitial,
     this.onOpenSettings,
   });
@@ -50,6 +51,11 @@ class FeedHeader extends StatelessWidget {
   final String title;
   final String subtitle;
   final int streak;
+
+  /// **Q2**: a broken streak keeps its number and loses its colour, rather
+  /// than dropping to zero. The history is not erased for being interrupted.
+  final bool streakFaded;
+
   final String viewerInitial;
 
   /// Tapping the avatar opens settings.
@@ -83,7 +89,8 @@ class FeedHeader extends StatelessWidget {
               ],
             ),
           ),
-          _StreakPill(count: streak),
+          // A couple who has never had a streak has nothing to show.
+          if (streak > 0) _StreakPill(count: streak, faded: streakFaded),
           const SizedBox(width: 12),
           GestureDetector(
             onTap: onOpenSettings,
@@ -96,32 +103,39 @@ class FeedHeader extends StatelessWidget {
 }
 
 class _StreakPill extends StatelessWidget {
-  const _StreakPill({required this.count});
+  const _StreakPill({required this.count, this.faded = false});
 
   final int count;
+
+  /// Rendered dimmed rather than removed. The number survives the break —
+  /// that is the whole of **Q2**'s forgiveness in one visual.
+  final bool faded;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: ShapeDecoration(
-        color: theme.colorScheme.surfaceContainerLowest,
-        shape: const StadiumBorder(),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        spacing: 6,
-        children: [
-          Glyph('🔥', size: context.glyphs.streakFlame),
-          Text(
-            '$count',
-            style: theme.textTheme.labelLarge!.copyWith(
-              fontWeight: FontWeight.w700,
+    return Opacity(
+      opacity: faded ? 0.45 : 1,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: ShapeDecoration(
+          color: theme.colorScheme.surfaceContainerLowest,
+          shape: const StadiumBorder(),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          spacing: 6,
+          children: [
+            Glyph('🔥', size: context.glyphs.streakFlame),
+            Text(
+              '$count',
+              style: theme.textTheme.labelLarge!.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

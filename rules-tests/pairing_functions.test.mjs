@@ -1492,3 +1492,353 @@ describe("P3-01 — the expired-window sweep", () => {
     assert.equal(second.examined, 0, "the item is no longer `opening`");
   });
 });
+
+describe("P2-40 — the couple timezone (Q3)", () => {
+  const tz = requireFromFunctions("./lib/timezone.js");
+
+  async function pairWithTimezone(timezone) {
+    const a = await newUser();
+    const b = await newUser();
+    await seedProfile(a.uid);
+    await seedProfile(b.uid);
+    const { code } = (await b.call("ensurePairingCode")).data;
+    const { requestId } = (await a.call("requestPairing", { code })).data;
+    const { coupleId } = (
+      await b.call("respondToPairing", { requestId, accept: true, timezone })
+    ).data;
+    return { coupleId };
+  }
+
+  test("a valid IANA zone is written to the couple", async () => {
+    const { coupleId } = await pairWithTimezone("Asia/Karachi");
+    assert.equal((await readDoc(`couples/${coupleId}`)).timezone, "Asia/Karachi");
+  });
+
+  test("a UTC OFFSET is rejected — Q3's whole point", async () => {
+    // Intl.DateTimeFormat accepts "+05:00" as a timeZone, so validating with
+    // Intl alone would let this through. An offset is wrong for half the year
+    // anywhere that observes DST.
+    for (const offset of ["+05:00", "-0800", "GMT+5", "05:00"]) {
+      assert.equal(tz.normaliseTimezone(offset), null, `accepted ${offset}`);
+    }
+  });
+
+  test("an unrecognised zone becomes null rather than failing the pairing", async () => {
+    // The accept is the flow brief §11 calls the most important metric. It
+    // must not fail because a device could not name its own timezone.
+    const { coupleId } = await pairWithTimezone("Mars/Olympus_Mons");
+    assert.equal((await readDoc(`couples/${coupleId}`)).timezone, null);
+  });
+
+  test("a missing zone becomes null, and the pairing still succeeds", async () => {
+    const { coupleId } = await pairWithTimezone(undefined);
+    const couple = await readDoc(`couples/${coupleId}`);
+    assert.equal(couple.timezone, null);
+    assert.equal(couple.memberIds.length, 2);
+  });
+
+  test("junk types are rejected without throwing", async () => {
+    for (const junk of [42, null, {}, [], "", "   ", "x".repeat(200)]) {
+      assert.equal(tz.normaliseTimezone(junk), null);
+    }
+  });
+
+  test("the fallback is a real zone the day boundary can use", async () => {
+    assert.equal(tz.usableTimezone(null), "UTC");
+    assert.equal(tz.usableTimezone("Mars/Nowhere"), "UTC");
+    assert.equal(tz.usableTimezone("Europe/Berlin"), "Europe/Berlin");
+  });
+
+  test("local date keys differ across zones for the same instant", async () => {
+    // 2026-08-03T20:00Z is still the 3rd in London and already the 4th in
+    // Auckland. This is the whole reason a couple needs ONE zone.
+    const instant = new Date("2026-08-03T20:00:00Z");
+    assert.equal(tz.localDateKey(instant, "Europe/London"), "2026-08-03");
+    assert.equal(tz.localDateKey(instant, "Pacific/Auckland"), "2026-08-04");
+  });
+
+  test("date arithmetic survives a DST transition", async () => {
+    // Europe/London springs forward on 2026-03-29. Adding a day across it must
+    // still be one calendar day, not 23 hours.
+    assert.equal(tz.shiftKey("2026-03-28", 1), "2026-03-29");
+    assert.equal(tz.daysBetweenKeys("2026-03-28", "2026-03-30"), 2);
+    assert.equal(tz.daysBetweenKeys("2026-10-24", "2026-10-26"), 2);
+  });
+});
+
+describe("P3-02 — the streak rules (Q2), as pure replay", () => {
+  const streak = requireFromFunctions("./lib/streak.js");
+  const A = "uid-a";
+  const B = "uid-b";
+  const members = [A, B];
+
+  /** Replays `pattern`, one entry per day from 2026-08-01. */
+  function run(pattern, initial = streak.emptyStreak) {
+    const days = pattern.map((_, i) => tzShift("2026-08-01", i));
+    const posted = new Map(
+      pattern.map((who, i) => [days[i], new Set(who)]),
+    );
+    return streak.replayStreak(
+      initial,
+      days,
+      (d) => posted.get(d) ?? new Set(),
+      members,
+    );
+  }
+  const tzLib = requireFromFunctions("./lib/timezone.js");
+  const tzShift = (k, n) => tzLib.shiftKey(k, n);
+
+  test("both posted -> the streak extends", () => {
+    const result = run([[A, B], [A, B], [A, B]]);
+    assert.equal(result.streakCount, 3);
+    assert.equal(result.streakBrokenAt, null);
+    assert.equal(result.lastStreakDate, "2026-08-03");
+  });
+
+  test("one posted -> it does NOT extend", () => {
+    // Brief §6: one person posting alone does not extend it.
+    const result = run([[A, B], [A], [A, B]]);
+    // Day 2 spent the grace; days 1 and 3 counted.
+    assert.equal(result.streakCount, 2);
+    assert.equal(result.lastGraceDate, "2026-08-02");
+  });
+
+  test("neither posted -> the grace day is spent and the count survives", () => {
+    const result = run([[A, B], [A, B], [], [A, B]]);
+    assert.equal(result.streakCount, 3);
+    assert.equal(result.streakBrokenAt, null);
+    assert.equal(result.lastGraceDate, "2026-08-03");
+  });
+
+  test("grace already spent this week -> the streak breaks, faded not zeroed", () => {
+    const result = run([[A, B], [A, B], [], [A, B], []]);
+    assert.equal(result.streakBrokenAt, "2026-08-05");
+    // Q2: the number survives the break. Zeroing would erase the history for
+    // having been interrupted.
+    assert.equal(result.streakCount, 3);
+  });
+
+  test("the grace is ROLLING, not a fixed week boundary", () => {
+    // Miss day 3, then miss day 11 — eight days later, so the grace has come
+    // back. A fixed Monday boundary would have made this arbitrary.
+    const pattern = [];
+    for (let i = 0; i < 12; i++) pattern.push([A, B]);
+    pattern[2] = [];
+    pattern[10] = [];
+    const result = run(pattern);
+    assert.equal(result.streakBrokenAt, null, "the second grace was refused");
+    assert.equal(result.streakCount, 10);
+  });
+
+  test("a broken streak restarts at one when they come back", () => {
+    const result = run([[A, B], [A, B], [], [], [A, B]]);
+    assert.equal(result.streakCount, 1);
+    assert.equal(result.streakBrokenAt, null);
+  });
+
+  test("a couple who never started cannot break", () => {
+    const result = run([[], [], [], [], []]);
+    assert.equal(result.streakCount, 0);
+    assert.equal(result.streakBrokenAt, null);
+  });
+
+  test("replay is pure: the same input always gives the same answer", () => {
+    const pattern = [[A, B], [], [A, B], [A], [A, B]];
+    assert.deepEqual(run(pattern), run(pattern));
+  });
+});
+
+describe("P3-02 — the streak against real data", () => {
+  const streak = requireFromFunctions("./lib/streak.js");
+  const A = "uid-a";
+  const B = "uid-b";
+
+  /** A couple with a fixed zone and no streak history. */
+  async function couple(id, timezone) {
+    await admin(async (db) => {
+      await setDoc(doc(db, "couples", id), {
+        memberIds: [A, B],
+        memberNames: { [A]: "Maya", [B]: "Sam" },
+        coupleName: null,
+        anniversaryDate: new Date("2026-08-01T00:00:00Z"),
+        createdAt: new Date("2026-08-01T00:00:00Z"),
+        streakCount: 0,
+        lastStreakDate: null,
+        timezone,
+      });
+    });
+  }
+
+  /** One item at an exact UTC instant. */
+  async function post(coupleId, senderId, iso, type = "text") {
+    await admin(async (db) => {
+      await setDoc(doc(db, "items", `${coupleId}-${senderId}-${iso}-${type}`), {
+        coupleId,
+        senderId,
+        type,
+        body: "hello",
+        reactions: {},
+        createdAt: new Date(iso),
+      });
+    });
+  }
+
+  test("both posted -> the streak extends, against real items", async () => {
+    await couple("c-both", "UTC");
+    await post("c-both", A, "2026-08-01T10:00:00Z");
+    await post("c-both", B, "2026-08-01T11:00:00Z");
+
+    const result = await streak.evaluateStreakForCouple(
+      adminDb(),
+      "c-both",
+      new Date("2026-08-02T12:00:00Z"),
+    );
+    assert.equal(result.state.streakCount, 1);
+    assert.equal((await readDoc("couples/c-both")).streakCount, 1);
+  });
+
+  test("one posted -> no extension", async () => {
+    await couple("c-one", "UTC");
+    await post("c-one", A, "2026-08-01T10:00:00Z");
+
+    const result = await streak.evaluateStreakForCouple(
+      adminDb(),
+      "c-one",
+      new Date("2026-08-02T12:00:00Z"),
+    );
+    assert.equal(result.state.streakCount, 0);
+  });
+
+  test("a mood counts, a reaction does not", async () => {
+    // Reactions are not items — they are a field on the other person's
+    // message, so they never reach the query at all. The mood is an item and
+    // does count.
+    await couple("c-mood", "UTC");
+    await post("c-mood", A, "2026-08-01T10:00:00Z", "status");
+    await post("c-mood", B, "2026-08-01T11:00:00Z", "emoji");
+
+    const result = await streak.evaluateStreakForCouple(
+      adminDb(),
+      "c-mood",
+      new Date("2026-08-02T12:00:00Z"),
+    );
+    assert.equal(result.state.streakCount, 1, "status and emoji should count");
+  });
+
+  test("a couple in a different timezone gets their own boundary", async () => {
+    // 2026-08-02T13:00Z is the 3rd in Auckland (UTC+12) and still the 2nd in
+    // UTC. The same two posts therefore land on different streak days.
+    await couple("c-utc", "UTC");
+    await couple("c-nz", "Pacific/Auckland");
+    for (const id of ["c-utc", "c-nz"]) {
+      await post(id, A, "2026-08-02T13:00:00Z");
+      await post(id, B, "2026-08-02T14:00:00Z");
+    }
+
+    const asOf = new Date("2026-08-04T06:00:00Z");
+    const utc = await streak.evaluateStreakForCouple(adminDb(), "c-utc", asOf);
+    const nz = await streak.evaluateStreakForCouple(adminDb(), "c-nz", asOf);
+
+    assert.equal(utc.state.lastStreakDate, "2026-08-02");
+    assert.equal(nz.state.lastStreakDate, "2026-08-03");
+  });
+
+  test("a null timezone does not crash — it falls back", async () => {
+    // Every couple paired before P2-40. Skipping them would mean their streak
+    // silently never moves, which looks exactly like a bug.
+    await couple("c-null", null);
+    await post("c-null", A, "2026-08-01T10:00:00Z");
+    await post("c-null", B, "2026-08-01T11:00:00Z");
+
+    const result = await streak.evaluateStreakForCouple(
+      adminDb(),
+      "c-null",
+      new Date("2026-08-02T12:00:00Z"),
+    );
+    assert.equal(result.state.streakCount, 1);
+  });
+
+  test("running twice for the same day gives the same count", async () => {
+    await couple("c-idem", "UTC");
+    await post("c-idem", A, "2026-08-01T10:00:00Z");
+    await post("c-idem", B, "2026-08-01T11:00:00Z");
+
+    const asOf = new Date("2026-08-02T12:00:00Z");
+    const first = await streak.evaluateStreakForCouple(adminDb(), "c-idem", asOf);
+    const second = await streak.evaluateStreakForCouple(adminDb(), "c-idem", asOf);
+
+    assert.equal(first.state.streakCount, 1);
+    assert.equal(second.evaluated, 0, "the second run re-scored a day");
+    assert.equal(second.state.streakCount, 1);
+    assert.equal((await readDoc("couples/c-idem")).streakCount, 1);
+  });
+
+  test("today is never scored — only completed days", async () => {
+    // Scoring today would break every streak at midnight and mend it again
+    // when someone posted.
+    await couple("c-today", "UTC");
+    await post("c-today", A, "2026-08-02T10:00:00Z");
+    await post("c-today", B, "2026-08-02T11:00:00Z");
+
+    const result = await streak.evaluateStreakForCouple(
+      adminDb(),
+      "c-today",
+      new Date("2026-08-02T23:00:00Z"),
+    );
+    assert.equal(result.state.streakCount, 0, "today was scored");
+  });
+
+  test("the repair path replays history and agrees with the daily path", async () => {
+    await couple("c-fix", "UTC");
+    await post("c-fix", A, "2026-08-01T10:00:00Z");
+    await post("c-fix", B, "2026-08-01T11:00:00Z");
+    await post("c-fix", A, "2026-08-02T10:00:00Z");
+    await post("c-fix", B, "2026-08-02T11:00:00Z");
+
+    const asOf = new Date("2026-08-03T12:00:00Z");
+    await streak.evaluateStreakForCouple(adminDb(), "c-fix", asOf);
+
+    // Corrupt the stored count, as a bug would.
+    await admin((db) => setDoc(doc(db, "couples", "c-fix"), { streakCount: 999 }, { merge: true }));
+
+    const repaired = await streak.recalculateStreak(adminDb(), "c-fix", asOf);
+    assert.equal(repaired.streakCount, 2, "the repair did not restore the truth");
+    assert.equal((await readDoc("couples/c-fix")).streakCount, 2);
+  });
+
+  test("recalculation is idempotent too", async () => {
+    await couple("c-idem2", "UTC");
+    await post("c-idem2", A, "2026-08-01T10:00:00Z");
+    await post("c-idem2", B, "2026-08-01T11:00:00Z");
+
+    const asOf = new Date("2026-08-03T12:00:00Z");
+    const first = await streak.recalculateStreak(adminDb(), "c-idem2", asOf);
+    const second = await streak.recalculateStreak(adminDb(), "c-idem2", asOf);
+    assert.deepEqual(first, second);
+  });
+
+  test("an unpaired couple is skipped", async () => {
+    await couple("c-gone", "UTC");
+    await admin((db) => setDoc(doc(db, "couples", "c-gone"), { status: "unpaired" }, { merge: true }));
+
+    const result = await streak.evaluateStreakForCouple(
+      adminDb(),
+      "c-gone",
+      new Date("2026-08-02T12:00:00Z"),
+    );
+    assert.equal(result, null);
+  });
+
+  test("the hourly sweep scores every couple that is due", async () => {
+    await couple("c-sweep", "UTC");
+    await post("c-sweep", A, "2026-08-01T10:00:00Z");
+    await post("c-sweep", B, "2026-08-01T11:00:00Z");
+
+    const result = await streak.sweepStreaks(
+      adminDb(),
+      new Date("2026-08-02T12:00:00Z"),
+    );
+    assert.ok(result.updated >= 1);
+    assert.equal((await readDoc("couples/c-sweep")).streakCount, 1);
+  });
+});

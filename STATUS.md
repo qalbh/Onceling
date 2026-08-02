@@ -2,7 +2,7 @@
 
 **Phase 3 of 4 · Last updated: 2026-08-03**
 
-**Now:** P3-02 — streak calculation (needs **P2-40** for the day boundary)
+**Now:** P3-03 — milestone triggers (day 100, 365, 500, 1000)
 
 ---
 
@@ -164,7 +164,13 @@ Looks finished, backed by nothing. This is the real Phase 2 worklist.
 - [ ] **M-03** Pairing — `myCode = 'MK4Q7B'`, `_canPair` only checks `length == 6`
 - [ ] **M-04** Share link — toast stub → deep link generation and handling
 - [ ] **M-05** Secrets — `markOpened()` deletes client-side; must move to a Function
-- [ ] **M-06** Streaks — hardcoded `47` in two places
+- [x] **M-06** Streaks — hardcoded `47` in two places
+      *Both gone: the feed header and the settings row read `streakProvider`, which
+      derives from the couple. Settings' `streak` constructor parameter is deleted
+      rather than defaulted, like **M-10**'s anniversary — nothing ever passed it.
+      A couple with no streak shows no pill at all; a broken one shows the number at
+      45% opacity, which is **Q2**'s forgiveness in one visual. Settings says it in
+      words too: "47-day, ended".*
 - [x] **M-07** Mood — local state only, no push to partner
       *Persisted by the `setMood` callable. Push itself is **P3-04**; what landed here
       is that a mood now reaches the other person at all, which it did not before.*
@@ -415,16 +421,33 @@ there is data.
       required tests provable rather than self-referential: the query, the pagination
       window, the mapper and every write run for real against an in-memory backend,
       with only `firestoreProvider` overridden.*
-- [ ] **P2-40** Write `couples/{id}.timezone` at pairing — the **Q3** decision.
-      `respondToPairing` still writes it null. The zone is an IANA name taken from the
-      accepting partner's device, so the client has to send it: `requestPairing` and
-      `respondToPairing` gain a `timezone` argument, validated server-side against a
-      known-zone list rather than trusted as a free string. **Never a UTC offset** —
-      offsets break twice a year under DST.
-      Blocks **P3-02**, which has nothing to read for the day boundary until this
-      lands. **P2-39**'s callable should be able to change it afterwards, alongside
-      the anniversary; a couple that moves should not have to re-pair.
-- [ ] **P2-39** `setAnniversary(date)` callable — the settings edit path for **M-10**.
+- [x] **P2-40** Write `couples/{id}.timezone` at pairing — the **Q3** decision.
+      *The accepting device sends its IANA name with `respondToPairing`;
+      `normaliseTimezone` validates it and the couple stores it. Read from
+      `flutter_timezone`, because `DateTime.now().timeZoneName` returns an
+      abbreviation or an offset depending on platform and neither is IANA.*
+      *Validated in **two** gates, and the first is the one that matters:
+      `Intl.DateTimeFormat` happily accepts `+05:00` as a timeZone, so validating
+      with Intl alone would let a UTC offset through — exactly what Q3 rules out. An
+      anchored `Region/City` pattern rejects anything starting with a sign or digit;
+      Intl is then the second gate, so a zone that validates cannot fail in P3-02.*
+      ***Invalid or missing becomes null — it never fails the accept.*** *The accept
+      is the flow brief §11 calls the single most important metric, and refusing to
+      pair two people because a device could not name its own timezone would trade
+      that for a field nothing reads until the next daily tick. P3-02 falls back to
+      **UTC** rather than skipping the couple: skipping means their streak silently
+      never moves, indefinitely and invisibly, which looks exactly like a bug.*
+      *Existing couples keep null and no migration runs, same as **M-02** and
+      **M-10**. **P2-39** is how a couple fixes it.*
+- [ ] **P2-39** `setAnniversary(date)` callable — the settings edit path for **M-10**,
+      and for the timezone (**P2-40**/**Q3**) now that couples carry one.
+      ***Changing the zone must not retroactively rewrite streak history.***
+      **P3-02** stores streak dates as calendar-date keys in the couple's zone, so
+      re-scoring old days under a new zone would silently move which day each past
+      post belonged to and could break a live streak retroactively. Change the zone
+      going forward only: leave `lastStreakDate`, `lastGraceDate`, `streakBrokenAt`
+      and `streakEvaluatedThrough` untouched, and let the new zone apply from the
+      next evaluation.
       A callable, not a write: `couples` denies every client write in every direction,
       which is what makes `coupleId` and the rest of that document trustworthy.
       Must validate that the caller is a member of the couple it names, reject a date
@@ -730,14 +753,54 @@ there is data.
       with `openedAt` and a correctly-derived `heldFullCountdown`; the recipient could
       neither re-read nor reopen it afterwards; and the tombstone arrived on the
       reader's screen through the feed listener with no refresh.*
-- [ ] **P3-02** Streak calculation Function
-      *Reads `couples/{id}.timezone` for the day boundary — one shared zone, an IANA
-      name, never a UTC offset (**Q3**). **One grace day per week: a missed day does
-      not reset the count**, and a genuinely broken streak renders faded rather than
-      zeroed, so the history survives having been interrupted (**Q2**). There is no
-      hard reset anywhere in this function.*
-      *Depends on **P2-40** — `timezone` is still written null, so this has nothing to
-      read until that lands.*
+- [x] **P3-02** Streak calculation Function
+      **What counts as "posted": all five item types, and only item types.**
+      *`text`, `photo`, `secret` are unambiguous. `emoji` counts because a streak
+      measures reaching out, not effort — a couple who sent each other hearts all day
+      plainly showed up. `status` (a mood) is the closest call, authored about
+      yourself rather than to your partner, and it counts because it lands in their
+      thread and they read it; someone who told their partner how they were doing has
+      not "failed to post" in any sense a person would accept. Brief §12's coercion
+      warning argues for the forgiving reading wherever the line is genuinely unclear.*
+      ***Reactions deliberately do not count**, and they are the sharp edge: a
+      reaction is a field on the other person's message, not an item. Replying is not
+      reaching out, and a streak kept alive by tapping ❤️ on whatever arrived would
+      measure attendance rather than contact.*
+      **Grace: one per ROLLING seven days**, tracked by `lastGraceDate`.
+      *Rolling rather than a fixed week boundary, which would create a cliff nobody
+      could explain — miss Saturday and Sunday and you die, miss Sunday and Monday and
+      you live, purely because an invisible line sits between them. Rolling makes the
+      promise simply true, at the cost of storing a date instead of a counter.*
+      **"Faded, not zeroed" is `streakBrokenAt`.** *`streakCount` keeps its last value
+      when a streak breaks and this field tells the UI to dim it. A "previous count"
+      field would say the same thing while letting the two drift apart. Coming back
+      restarts at 1 — the old number stays visible until that moment precisely so it
+      is not erased.*
+      **Incremental, with an explicit repair path.** *A daily full replay of every
+      couple's whole thread is a read cost that grows without bound, for a number that
+      changes by at most one. So the daily path increments, and `recalculateStreak`
+      replays from history and overwrites when a count is wrong. Both share the same
+      pure `replayStreak` core, so the repair cannot disagree with the daily path
+      about the rules — only about how far back it looked. Purity is also what makes
+      idempotency structural rather than asserted.*
+      **Scheduling across timezones: hourly, not daily.** *A streak day ends at the
+      couple's own midnight and couples in different zones do not share one. Rather
+      than a cron per zone, the tick runs hourly and the evaluation is idempotent and
+      keyed on the couple's local date via `streakEvaluatedThrough` — so a couple is
+      scored within an hour of their own midnight and never scored twice for the same
+      day. Frequency becomes an implementation detail instead of a correctness
+      property.*
+      *Fields added to `couples`: `streakBrokenAt` (faded), `lastGraceDate` (the
+      rolling grace), `streakEvaluatedThrough` (idempotency). `streakCount` and
+      `lastStreakDate` already existed per brief §9. **All dates are calendar-date
+      keys (`YYYY-MM-DD`), not timestamps** — a timestamp would be ambiguous about
+      whose midnight it meant, which is the entire problem Q3 exists to solve.*
+      *Only completed days are scored; today is never evaluated, or every streak would
+      break at midnight and mend when someone posted. The count increments only on
+      days both posted, so a 47-day streak means 47 days they both showed up rather
+      than 47 calendar days — grace days keep it alive without inflating it.*
+      *No new index: the existing `coupleId` + `createdAt` composite covers the range
+      query.*
 - [ ] **P3-03** Milestone triggers — day 100, 365, 500, 1000
       *Unaffected by **Q2**'s forgiveness: milestones count days since
       `anniversaryDate` (**M-10**), not consecutive posting. They are anniversaries,
@@ -832,6 +895,14 @@ Non-blocking. Fix when convenient.
       pre-batch state, so the item genuinely does not exist yet. The fix is a write
       counter in `rateLimits`, which belongs with **P3-05**. Blast radius is the
       member's own couple; **P2-36**'s sweep collects them by `coupleId` on unpair.
+- [ ] **D-20** **P3-02**'s hourly tick reads every couple document (`COUPLE_BATCH`
+      200) to find the ones whose local yesterday is unscored. Whether a couple is due
+      depends on their own `streakEvaluatedThrough` and their own zone, so it is not
+      a queryable condition — hence a scan. Fine at V1 scale and bounded per tick, but
+      it does not scale: at a few thousand couples this is a full read of the
+      collection every hour. The fix when it matters is a `streakDueAt` timestamp
+      written at evaluation time and queried with a range, which makes the due set
+      indexable.
 - [ ] **D-15** Feed pagination is one growing `limit`, so page N re-delivers the whole
       window: N pages cost 30+60+90+… document reads, quadratic in pages. Chosen at
       **P2-12** so every page stays live and a reaction on an old message updates in

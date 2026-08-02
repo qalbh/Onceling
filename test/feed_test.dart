@@ -273,6 +273,56 @@ void main() {
       expect(find.textContaining('1970'), findsNothing);
     });
 
+    testWidgets('the streak pill is real, and fades when broken (M-06)', (
+      tester,
+    ) async {
+      final db = FakeFirebaseFirestore();
+      await seedItem(db, coupleId: ourCouple, senderId: them, body: 'hi');
+
+      await pumpFeed(
+        tester,
+        db: db,
+        extra: [
+          ...signedInOverrides(
+            coupleId: ourCouple,
+            firestore: db,
+            streakCount: 47,
+          ),
+        ],
+      );
+      expect(find.text('47'), findsOneWidget);
+      expect(tester.widget<Opacity>(find.byType(Opacity).first).opacity, 1.0);
+
+      await pumpFeed(
+        tester,
+        db: db,
+        extra: [
+          ...signedInOverrides(
+            coupleId: ourCouple,
+            firestore: db,
+            streakCount: 47,
+            streakBrokenAt: '2026-08-02',
+          ),
+        ],
+      );
+      // Q2: the number survives the break, dimmed rather than removed.
+      expect(find.text('47'), findsOneWidget);
+      expect(tester.widget<Opacity>(find.byType(Opacity).first).opacity, 0.45);
+    });
+
+    testWidgets('a couple with no streak shows no pill at all', (tester) async {
+      final db = FakeFirebaseFirestore();
+      await seedItem(db, coupleId: ourCouple, senderId: them, body: 'hi');
+      await pumpFeed(tester, db: db);
+
+      // Scoped to the header: 🔥 is also a tray emoji, so a bare finder
+      // matches the wrong widget and the test passes for the wrong reason.
+      expect(
+        find.descendant(of: find.byType(FeedHeader), matching: find.text('🔥')),
+        findsNothing,
+      );
+    });
+
     test('the header exposes no viewer-swap hook at all', () {
       // Structural: a behavioural test cannot prove the callback is absent,
       // and re-adding the parameter is how the affordance would come back.

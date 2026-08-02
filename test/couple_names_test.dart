@@ -201,4 +201,34 @@ void main() {
       expect(unset.read(anniversaryLabelProvider), 'Not set');
     });
   });
+
+  group('M-06 — the streak, no longer hardcoded', () {
+    test('a healthy streak reports its count and is not faded', () async {
+      final c = containerWith(
+        signedInOverrides(coupleId: 'couple-1', streakCount: 47),
+      );
+      await settle(c);
+      expect(c.read(streakProvider), (count: 47, faded: false));
+    });
+
+    test('a broken streak keeps its number and is faded', () async {
+      // Q2: faded, not zeroed. The history is not erased for having been
+      // interrupted, so the count must survive the break.
+      final c = containerWith(
+        signedInOverrides(
+          coupleId: 'couple-1',
+          streakCount: 47,
+          streakBrokenAt: '2026-08-02',
+        ),
+      );
+      await settle(c);
+      expect(c.read(streakProvider), (count: 47, faded: true));
+    });
+
+    test('an unpaired user has no streak rather than a crash', () async {
+      final c = containerWith(signedInOverrides());
+      await settle(c);
+      expect(c.read(streakProvider), (count: 0, faded: false));
+    });
+  });
 }

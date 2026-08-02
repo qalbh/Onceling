@@ -205,8 +205,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 child: FeedHeader(
                   title: ref.watch(coupleTitleProvider),
                   subtitle: ref.watch(anniversaryLineProvider),
-                  // M-06: still mock, and still blocked on Q2.
-                  streak: 47,
+                  streak: ref.watch(streakProvider).count,
+                  streakFaded: ref.watch(streakProvider).faded,
                   viewerInitial: ref.watch(memberInitialResolverProvider)(
                     _viewerId,
                   ),

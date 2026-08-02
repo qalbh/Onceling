@@ -26,4 +26,5 @@ export {
   completeReveal,
   sweepExpiredRevealsScheduled,
 } from "./secret.js";
+export { updateStreaksScheduled } from "./streak.js";
 export { sweepUnpairedCouple, unpair } from "./unpair.js";

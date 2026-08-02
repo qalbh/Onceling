@@ -28,7 +28,16 @@ abstract interface class PairingService {
   /// Accepting returns the new couple's id. Declining returns null — and
   /// writes `expired`, not `rejected`, so the sender is never told a person
   /// refused (**PI-05**).
-  Future<String?> respondToPairing(String requestId, {required bool accept});
+  ///
+  /// [timezone] is the accepting device's IANA zone (**P2-40**, **Q3**), which
+  /// becomes the couple's shared day boundary. Null is fine and never fails the
+  /// accept: the server validates it and falls back rather than rejecting a
+  /// pairing over a field nothing reads until the next daily tick.
+  Future<String?> respondToPairing(
+    String requestId, {
+    required bool accept,
+    String? timezone,
+  });
 }
 
 class FirebaseFunctionsPairingService implements PairingService {
@@ -66,10 +75,13 @@ class FirebaseFunctionsPairingService implements PairingService {
   Future<String?> respondToPairing(
     String requestId, {
     required bool accept,
+    String? timezone,
   }) async {
     final result = await _functions.httpsCallable('respondToPairing').call({
       'requestId': requestId,
       'accept': accept,
+      // Only sent on accept — a decline creates no couple to carry it.
+      if (accept && timezone != null) 'timezone': timezone,
     });
     return (result.data as Map)['coupleId'] as String?;
   }

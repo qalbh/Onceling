@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../common/providers.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
+import '../device_timezone.dart';
 import '../models/pairing_request.dart';
 
 /// **P2-25** — someone is asking to enter a space that holds one other person.
@@ -34,9 +35,18 @@ class _IncomingRequestCardState extends ConsumerState<IncomingRequestCard> {
   Future<void> _respond({required bool accept}) async {
     setState(() => _busy = true);
     try {
+      // **P2-40**: the accepting device names the couple's timezone. Read
+      // before the call and never allowed to fail it — a device that cannot
+      // report its own zone still gets to pair, and the server falls back.
+      final timezone = accept ? await ref.read(deviceTimezoneProvider)() : null;
+
       await ref
           .read(pairingServiceProvider)
-          .respondToPairing(widget.request.id, accept: accept);
+          .respondToPairing(
+            widget.request.id,
+            accept: accept,
+            timezone: timezone,
+          );
       // Nothing to navigate to on accept: the profile stream carries the new
       // coupleId, which arms the pairing moment and moves the gate (P2-26).
       // The accept transaction also expires every other pending request, so

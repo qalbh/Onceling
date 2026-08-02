@@ -10,6 +10,7 @@ import 'package:couple_app/features/auth/auth_service.dart';
 import 'package:couple_app/features/auth/models/user_profile.dart';
 import 'package:couple_app/features/mood/mood_service.dart';
 import 'package:couple_app/features/pairing/couple_names.dart';
+import 'package:couple_app/features/pairing/device_timezone.dart';
 import 'package:couple_app/features/pairing/models/couple.dart';
 import 'package:couple_app/features/pairing/models/pairing_request.dart';
 import 'package:couple_app/features/pairing/pairing_service.dart';
@@ -98,8 +99,11 @@ class FakePairingService implements PairingService {
   Future<String?> respondToPairing(
     String requestId, {
     required bool accept,
+    String? timezone,
   }) async {
-    calls.add('respondToPairing:$requestId:$accept');
+    // The timezone is recorded so P2-40 can assert the accepting device sent
+    // one, and that a decline does not.
+    calls.add('respondToPairing:$requestId:$accept:${timezone ?? '-'}');
     return accept ? (coupleId ?? 'couple-1') : null;
   }
 }
@@ -241,6 +245,8 @@ Couple fakeCouple({
   String partnerName = 'Devon',
   bool withNames = true,
   String? coupleName,
+  int streakCount = 0,
+  String? streakBrokenAt,
   // Null models a couple paired before M-10, exactly as withNames: false
   // models one paired before M-02. Both degrade, neither migrates.
   DateTime? anniversaryDate,
@@ -252,6 +258,8 @@ Couple fakeCouple({
   memberNames: withNames ? {uid: myName, partnerUid: partnerName} : const {},
   coupleName: coupleName,
   anniversaryDate: anniversaryDate,
+  streakCount: streakCount,
+  streakBrokenAt: streakBrokenAt,
 );
 
 /// Overrides for a signed-out session: the gate lands on sign-in.
@@ -289,13 +297,20 @@ List<Override> signedInOverrides({
   bool withNames = true,
   String partnerUid = 'uid-partner',
   DateTime? anniversaryDate,
+  int streakCount = 0,
+  String? streakBrokenAt,
   // A fake Firestore, when the test exercises a real query. Overriding the
   // root provider rather than the feed's own means the query, the mapper and
   // the writes all run for real — only the backend is fake.
   FakeFirebaseFirestore? firestore,
   MoodService? mood,
   SecretService? secret,
+  // P2-40. Overridden by default because the real reader is a platform
+  // channel, which a widget test has no answer for — the call would hang
+  // before `respondToPairing` was ever reached.
+  String? deviceTimezone = 'Asia/Karachi',
 }) => [
+  deviceTimezoneProvider.overrideWithValue(() async => deviceTimezone),
   if (firestore case final db?) firestoreProvider.overrideWithValue(db),
   if (mood case final service?) moodServiceProvider.overrideWithValue(service),
   if (secret case final service?)
@@ -327,6 +342,8 @@ List<Override> signedInOverrides({
             partnerName: displayName == 'Devon' ? 'Maya' : 'Devon',
             withNames: withNames,
             anniversaryDate: anniversaryDate,
+            streakCount: streakCount,
+            streakBrokenAt: streakBrokenAt,
           ),
   ),
 ];

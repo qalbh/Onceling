@@ -10,6 +10,8 @@ class Couple {
     this.coupleName,
     this.anniversaryDate,
     this.streakCount = 0,
+    this.streakBrokenAt,
+    this.timezone,
     this.moodEmoji,
     this.moodText,
     this.moodBy,
@@ -44,7 +46,27 @@ class Couple {
   /// the settings edit path.
   final DateTime? anniversaryDate;
 
+  /// Days both partners posted, consecutively (**P3-02**). Grace days keep it
+  /// alive without incrementing it, so this counts days they showed up rather
+  /// than calendar days elapsed.
   final int streakCount;
+
+  /// The day the streak broke, `YYYY-MM-DD`, or null while healthy.
+  ///
+  /// **Q2's "faded, not zeroed" lives here.** `streakCount` deliberately keeps
+  /// its last value when a streak breaks; this is what tells the UI to render
+  /// it faded rather than showing a zero. A calendar date rather than a
+  /// timestamp, because a streak day is a day on somebody's wall calendar —
+  /// whose, is what **Q3** settles.
+  final String? streakBrokenAt;
+
+  /// True when the streak is over but its number is still worth showing.
+  bool get isStreakFaded => streakBrokenAt != null;
+
+  /// The couple's shared IANA timezone (**Q3**, **P2-40**). Null on every
+  /// couple paired before it, and on a device that could not name its own —
+  /// the server falls back rather than skipping them.
+  final String? timezone;
 
   /// The current ambient mood, written by the `setMood` callable (**P2-12**).
   ///
@@ -80,6 +102,8 @@ class Couple {
       coupleName: data['coupleName'] as String?,
       anniversaryDate: _readTime(data['anniversaryDate']),
       streakCount: (data['streakCount'] as num?)?.toInt() ?? 0,
+      streakBrokenAt: data['streakBrokenAt'] as String?,
+      timezone: data['timezone'] as String?,
       moodEmoji: data['moodEmoji'] as String?,
       moodText: data['moodText'] as String?,
       moodBy: data['moodBy'] as String?,

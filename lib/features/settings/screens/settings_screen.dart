@@ -15,12 +15,7 @@ import '../widgets/settings_rows.dart';
 import '../widgets/unpair_sheet.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key, this.streak = 47});
-
-  /// **M-06**, still mock and still blocked on **Q2**. The anniversary beside
-  /// it stopped being a parameter at **M-10** — it is a real field now, read
-  /// from the couple rather than passed in, and nothing ever passed it.
-  final int streak;
+  const SettingsScreen({super.key});
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -71,7 +66,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await UnpairSheet.show(
       context,
       partnerName: ref.watch(partnerNameProvider),
-      streak: widget.streak,
+      streak: ref.read(streakProvider).count,
     );
   }
 
@@ -97,7 +92,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   label: 'Anniversary',
                   value: ref.watch(anniversaryLabelProvider),
                 ),
-                SettingsRow(label: 'Streak', value: '${widget.streak}-day'),
+                SettingsRow(
+                  label: 'Streak',
+                  value: switch (ref.watch(streakProvider)) {
+                    (count: 0, faded: _) => 'Not started',
+                    // Says out loud what the faded pill only implies.
+                    (count: final n, faded: true) => '$n-day, ended',
+                    (count: final n, faded: false) => '$n-day',
+                  },
+                ),
               ],
             ),
             const SizedBox(height: 26),

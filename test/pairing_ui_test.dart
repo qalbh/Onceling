@@ -367,7 +367,12 @@ void main() {
       await tester.tap(find.text('Accept'));
       await tester.pumpAndSettle();
 
-      expect(pairing.calls, contains('respondToPairing:req-7:true'));
+      // P2-40 (Q3): the accepting device names the couple's shared timezone,
+      // and it rides along with the accept rather than needing its own call.
+      expect(
+        pairing.calls,
+        contains('respondToPairing:req-7:true:Asia/Karachi'),
+      );
     });
 
     testWidgets('Not now declines rather than accepting', (tester) async {
@@ -386,7 +391,11 @@ void main() {
       await tester.tap(find.text('Not now'));
       await tester.pumpAndSettle();
 
-      expect(pairing.calls, contains('respondToPairing:req-7:false'));
+      expect(
+        pairing.calls,
+        // A decline creates no couple, so it carries no timezone.
+        contains('respondToPairing:req-7:false:-'),
+      );
     });
 
     testWidgets('a nameless sender renders a fallback, never a blank', (
