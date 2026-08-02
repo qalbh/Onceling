@@ -1,8 +1,8 @@
 # Onceling — Status
 
-**Phase 2 of 4 · Last updated: 2026-08-03**
+**Phase 3 of 4 · Last updated: 2026-08-03**
 
-**Now:** P2-13 — photo upload to Cloud Storage (enable the Storage emulator first)
+**Now:** P3-01 — secret reveal
 
 ---
 
@@ -32,8 +32,19 @@ Read this before editing. Applies to Claude Code and to me.
 ## Phase status
 
 - [x] **Phase 1 — UI with mock data**
-- [ ] **Phase 2 — Firebase, auth, pairing, persistence** ← current
-- [ ] **Phase 3 — Cloud Functions, deletion, streaks, push, onboarding**
+- [x] **Phase 2 — Firebase, auth, pairing, persistence**
+      *Closed 2026-08-03 with real auth, the pairing handshake, the feed on Firestore,
+      Security Rules and their tests. Deferred: **P2-13** (photo upload), **P2-16**
+      (Blaze for dev), **P2-19**–**P2-22**, **P2-28** (request sweep), **P2-31**,
+      **P2-32**, **P2-37**–**P2-40**.*
+      ***None of it gates the start of Phase 3, and none of it gates P3-01*** — that
+      is what closing Phase 2 here means. Two of them do gate specific later Phase 3
+      tasks, and pretending otherwise would just move the surprise:
+      **P2-40** (write `couples/{id}.timezone`) blocks **P3-02**, which has no day
+      boundary to read until it lands; and **P2-16** (Blaze on dev) blocks verifying
+      **P3-04**, because the emulator has no FCM and push can only be seen on a real
+      deploy. Build them when their Phase 3 task comes up, not before.*
+- [ ] **Phase 3 — Cloud Functions, deletion, streaks, push, onboarding** ← current
 - [ ] **Phase 4 — Home widget, polish, store submission**
 
 > **Gate:** no external testers — TestFlight or Play internal — until **PI-02** ships.
