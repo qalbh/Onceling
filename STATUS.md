@@ -21,8 +21,10 @@ Read this before editing. Applies to Claude Code and to me.
   to **Cut** with their ID intact.
 - Move an item out of **Built on mock data** only when it is backed by real
   persistence, not when the UI merely looks right.
-- Do not mark a **Decision** resolved on the user's behalf. Those are theirs alone.
-  If the code implies an answer, note it — don't tick it.
+- Do not mark a **Decision** resolved on the user's behalf. Those are theirs alone, and
+  code implying an answer is not the same as the answer being given — note the
+  implication, don't tick it. When the user does decide, tick it and record the
+  decision and its reasoning in the entry.
 - Scope decided *against* goes in **Cut** with a one-line reason, not ticked as done.
 
 ---
@@ -44,15 +46,31 @@ Read this before editing. Applies to Claude Code and to me.
 Nothing below is code. Each one changes what gets built. Phase 3 should not start
 until Q1, Q2 and Q3 are answered.
 
-- [ ] **Q1** Hard delete or short encrypted retention for opened secrets?
-      *Code currently assumes hard delete — `markOpened()` drops the body.*
+- [x] **Q1** Hard delete or short encrypted retention for opened secrets? **Hard
+      delete.** No retention, no recoverable copy, no support path. Once a secret is
+      opened its body is destroyed and only the tombstone in `items` survives. This
+      is what the code has assumed since **P2-06** removed `SecretMessage.body` and
+      `markOpened()`, what **P2-36**'s sweep already does, and what the unpair copy
+      promises. Retention would mean the content still exists after the app says it
+      does not, which **PI-02**'s honesty disclosure could not describe without
+      undercutting the product. Decided 2026-08-02.
+
+      *The accidental-open risk is real and accepted. Brief §10 names it: "an
+      accidental open is unrecoverable." The mitigation is interaction design, not
+      storage — press-and-hold is already deliberate, and **P3-01** should consider a
+      confirmation before the countdown starts.*
 - [ ] **Q2** Are streaks in, and if in, are they forgiving?
       *Currently in and unforgiving. Brief §12 flags coercion risk.*
 - [ ] **Q3** One couple timezone, or per-device? *Blocks the streak Function.*
 - [ ] **Q4** Any monetisation intent? *Decides whether trademark checks matter.*
-- [ ] **Q5** Export on unpair, or destroy? *Unpair copy promises total erasure.*
-      *Owner decided: **destroy, no export**. Implemented in **P2-36**'s sweep.
-      Left unticked — decisions belong to the owner, per the rules at the top.*
+- [x] **Q5** Export on unpair, or destroy? **Destroy, no export.** *Unpair copy
+      promises total erasure.* Implemented in **P2-36**'s sweep: items go with their
+      bodies in one batch, a second pass catches bodies whose items are already gone,
+      and the couple document goes last so an interrupted sweep stays discoverable.
+      *Was recorded here as decided-but-unticked, on the reading that a Decision stays
+      unticked whoever made it. Corrected 2026-08-02 — the owner made this call, so it
+      is ticked, like **Q1**. The rule at the top guards against the agent deciding,
+      not against a decision being recorded.*
 
 ---
 
