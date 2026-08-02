@@ -151,7 +151,6 @@ final routerProvider = Provider<GoRouter>((ref) {
             child: SecretRevealScreen(
               secret: args.secret,
               senderName: args.senderName,
-              body: args.body,
             ),
             transitionsBuilder: (_, animation, _, child) =>
                 FadeTransition(opacity: animation, child: child),
@@ -164,19 +163,10 @@ final routerProvider = Provider<GoRouter>((ref) {
 
 /// Arguments for the secret reveal route, passed via `state.extra`.
 class SecretRevealArgs {
-  const SecretRevealArgs({
-    required this.secret,
-    required this.senderName,
-    required this.body,
-  });
+  const SecretRevealArgs({required this.secret, required this.senderName});
 
   final SecretMessage secret;
   final String senderName;
-
-  /// Null when the body could not be read — see [SecretRevealScreen.body].
-  /// Always null today: **P3-01** owns the transition that makes a body
-  /// readable.
-  final String? body;
 }
 
 /// Held while auth or the profile document is still resolving.

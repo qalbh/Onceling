@@ -85,6 +85,18 @@ service cloud.firestore {
     /// arrive carrying `secretState`, which the P2-06 mapper would silently
     /// ignore while the document claimed to be something it is not. Caught by
     /// probe, not by reading.
+    ///
+    /// **`openingStartedAt` is deliberately absent**, even though **P3-01**'s
+    /// Admin SDK writes it and a stored secret therefore carries a key this
+    /// list does not name. Adding it was tried and reverted: it makes
+    /// `openingStartedAt: null` writable by a client, trading a live guarantee
+    /// — no client may stamp a reveal start time, in any form — for a purely
+    /// hypothetical one. `items_rules.test.mjs` pins both directions.
+    ///
+    /// The consequence to know about: `isWellFormedItem` runs on create only,
+    /// which is why reactions on an opened secret still work. **Do not add it
+    /// to `allow update` as a hardening measure** — the stored shape would fail
+    /// `hasOnly` and every reaction on a secret would start being rejected.
     function itemKeysFor(type) {
       return type == 'text'
                ? baseItemKeys().concat(['body'])
@@ -160,22 +172,33 @@ service cloud.firestore {
     /// from the document, not only a literal. Probed both ways — a fresh
     /// window reads, an expired one is denied.
     ///
-    /// The exception is `untilClosed`, which has no `revealDurationSeconds`
-    /// and therefore no clock to bound. Those rely on state alone, and it is
-    /// **P3-01** that must close them; see the expired-window note in STATUS.
+    /// `untilClosed` used to be the exception: no `revealDurationSeconds`, so
+    /// no clock, so it gated on state alone and stayed readable for as long as
+    /// it stayed `opening`. **P3-01 closed that.** A reader who never finishes
+    /// would otherwise leave a readable body on the server indefinitely, which
+    /// is the retention §10 promises against — the wrong reader is only half of
+    /// what that section guards.
+    ///
+    /// Both branches are bounded now, and the ceiling is the same hour
+    /// `isWellFormedItem` already caps `revealDurationSeconds` at, so the
+    /// invariant is uniform: **no reveal session outlasts an hour.** Enforced
+    /// here rather than only in P3-01's sweep, so the body stops being readable
+    /// at the hour mark rather than whenever the schedule next happens to run.
+    ///
     /// An `opening` item with no start time is unreadable — fails closed.
     function isWithinRevealWindow(item) {
       return item.secretState == 'opening'
              && item.openingStartedAt is timestamp
              // The key must be tested for presence first: reading a missing
              // key from a map is an error in rules, not a false.
-             // `untilClosed` writes it as null, an older document may omit it
-             // entirely, and both must mean "no clock" rather than "denied".
+             // `untilClosed` writes it as null and an older document may omit
+             // it entirely; both mean "no per-item clock", not "denied".
              && (('revealDurationSeconds' in item)
                    && item.revealDurationSeconds is int
                    ? request.time < item.openingStartedAt
                        + duration.value(item.revealDurationSeconds, 's')
-                   : true);
+                   : request.time < item.openingStartedAt
+                       + duration.value(3600, 's'));
     }
 
     /// A secret body. The text itself is the only payload.

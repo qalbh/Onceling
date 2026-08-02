@@ -2,7 +2,7 @@
 
 **Phase 3 of 4 · Last updated: 2026-08-03**
 
-**Now:** P3-01 — secret reveal
+**Now:** P3-02 — streak calculation (needs **P2-40** for the day boundary)
 
 ---
 
@@ -661,24 +661,75 @@ there is data.
 
 ## Phase 3 — Functions, push, onboarding
 
-- [ ] **P3-01** Secret deletion Function — hard delete `secretBodies`, keep the
-      tombstone in `items`. **Owns two transitions, not one**, since **P2-10** gave
-      `secretState` a third value:
-      - `sealed -> opening`, stamping `openingStartedAt` and starting the read window.
-      - `opening -> opened`, deleting the body and keeping the tombstone.
-      *The second must be idempotent, and must fire even if the recipient closes the
-      app mid-reveal. A client cannot drive it: item `update` is restricted to the
-      caller's own reaction key, so nothing on the device can set `secretState`.*
-      *The expired-window case has no owner yet: a secret left in `opening` whose
-      window has passed is stored, unreadable by anyone, and undeleted. Neither
-      transition fires, because the recipient never finished. Either the
-      `opening -> opened` transition must be reachable without the client — a
-      scheduled pass, or the same schedule as **P2-28** — or the sweep must collect
-      them. Decide when P3-01 is built; do not leave it to be discovered.*
-      *`untilClosed` secrets are the sharp end of this: they carry no
-      `revealDurationSeconds`, so the rule has no clock to bound them with and gates
-      on state alone. Until P3-01 exists they stay readable for as long as they stay
-      `opening`.*
+- [x] **P3-01** Secret reveal — hard delete `secretBodies`, keep the tombstone in
+      `items`. **Two transitions, both server-only**, since a client cannot set
+      `secretState`: item `update` is restricted to the caller's own reaction key.
+      - `beginReveal` — `sealed -> opening`, stamping `openingStartedAt`.
+      - `completeReveal` — `opening -> opened`, deleting the body in the same
+        transaction as the state change. **Q1: hard delete**, no retention, no
+        recoverable copy, no support path.
+      *Both idempotent, and the shape of `beginReveal`'s idempotency is the point: a
+      second call on a still-open window returns the EXISTING `openingStartedAt`
+      rather than stamping a new one. Restarting the clock would extend the window,
+      which is the one thing it must never do — and the client does re-call it, on a
+      retry after a failed body read.*
+      *`heldFullCountdown` is derived server-side from real elapsed time, never taken
+      from the caller. It is what the SENDER is told, and an app about honesty should
+      not let one side author the other side's notification.*
+      **The expired-window case, decided: a scheduled sweep, `every 10 minutes`.**
+      *Not folded into an existing one, because there is no existing schedule to fold
+      into — **P2-28** is deferred and unbuilt, and **P2-36**'s `sweepUnpairedCouple`
+      is a document trigger that fires on a couple going `unpaired`, so it would never
+      see an abandoned reveal in a couple still together. Attaching to it would mean
+      collection happened only by luck. When P2-28 is built it can share this
+      schedule; both are "collect what nobody finished".*
+      *It cannot race a live reveal: each item is judged against its OWN deadline —
+      `openingStartedAt` + its own window + a 5-minute grace — not one global cutoff.
+      A 10s and a 30s secret are each judged on their own terms.*
+      ***What happens to an `untilClosed` secret whose reader never finishes:*** *it is
+      closed at a one-hour ceiling. Those carry no `revealDurationSeconds`, so nothing
+      time-based expires them, and without a bound a reader who walks away leaves a
+      readable body on the server indefinitely — the retention brief §10 promises
+      against, not just the wrong reader. The ceiling mirrors the existing
+      `revealDurationSeconds <= 3600` cap so the invariant is uniform: **no reveal
+      session outlasts an hour.** It is enforced in `firestore.rules` as well as in
+      the sweep, so the body stops being readable at the hour mark rather than
+      whenever the schedule next runs. **This slightly narrows what "until they close
+      it" means** — a reader lingering past an hour loses the text. Recorded as a
+      decision the owner can overturn; the alternative is indefinite retention.*
+      **Q1's confirmation question, answered: no dialog.** *`beginReveal` moved to
+      AFTER the held breath and the tear, so those 2.3 seconds are the confirmation —
+      nothing is written during them and leaving costs nothing. A modal after a
+      deliberate press-and-hold would duplicate a commitment the choreography already
+      makes, and is the kind of prompt people learn to dismiss unread. Moving the call
+      also means the reader gets the whole window for reading instead of losing 2.3s
+      of it to animation. Pinned by a test that abandons mid-tear and asserts no call
+      was made.*
+      *The screen handles: the body failing to load after `beginReveal` succeeded
+      (retryable, and says the clock has started, because it has); backgrounding
+      mid-countdown (the window is the server's, so on resume it recomputes from
+      `openingStartedAt` rather than resuming a paused local timer); the window
+      expiring while open; and the already-opened case.*
+      *`firestore.rules` changed — the `untilClosed` branch only. **Auditor: 4/5**,
+      unchanged from P2-10 and for the same reasons. No finding is attacker-reachable;
+      every one is a member acting on their own couple's data. Findings: orphan
+      `secretBodies` creation with no item required (a rules-level `exists()` check is
+      not viable — P2-12 writes both in one batch, evaluated against pre-batch state,
+      so the item does not exist yet), unbounded content writes with no rate limit
+      (folded into **P3-05**), and the `itemKeysFor` note below.*
+      *The auditor's `itemKeysFor` recommendation was **applied and then reverted**:
+      adding `openingStartedAt` to the permitted secret keys made
+      `openingStartedAt: null` writable by a client, trading a live guarantee for a
+      hypothetical one. A P2-12 test caught it immediately. The landmine it was meant
+      to defuse is now a comment instead: **do not add `isWellFormedItem` to
+      `allow update`** — the stored shape carries an admin-written key the validator
+      does not list, and every reaction on a secret would start failing.*
+      *Verified on device end to end, which is what the rule had never had: the
+      recipient read the body through the rule during the window; the sender was
+      denied mid-window; `completeReveal` destroyed the body and left the tombstone
+      with `openedAt` and a correctly-derived `heldFullCountdown`; the recipient could
+      neither re-read nor reopen it afterwards; and the tombstone arrived on the
+      reader's screen through the feed listener with no refresh.*
 - [ ] **P3-02** Streak calculation Function
       *Reads `couples/{id}.timezone` for the day boundary — one shared zone, an IANA
       name, never a UTC offset (**Q3**). **One grace day per week: a missed day does
@@ -767,8 +818,20 @@ Non-blocking. Fix when convenient.
       was running — the run started moments after a `pairing.ts` edit, and a functions
       reload mid-suite could plausibly disturb the emulator connection. Untested. If
       it recurs, note whether a rebuild was in flight before blaming the emulator.*
+      *Second occurrence at **P3-01**, and it corroborates the hypothesis: same test,
+      same `clearFirestore` CANCELLED, and again on the FIRST run after a functions
+      source edit (`secret.ts` was new, so build:watch had just recompiled). Two for
+      two. Clean on re-run both times. Worth trying: pause the watcher, or wait for it
+      to settle, before starting the suite.*
       *The identity was captured this time without effort, because `run-suite.mjs`
       names failures and retains the log. That is what D-14 bought.*
+- [ ] **D-19** `secretBodies` create does not require a corresponding `items`
+      document, so a member can write orphan bodies at arbitrary ids. Raised by the
+      **P3-01** audit as minor. A rules-level `exists()` check is **not** the fix:
+      **P2-12** writes item and body in one batch, and batch writes evaluate against
+      pre-batch state, so the item genuinely does not exist yet. The fix is a write
+      counter in `rateLimits`, which belongs with **P3-05**. Blast radius is the
+      member's own couple; **P2-36**'s sweep collects them by `coupleId` on unpair.
 - [ ] **D-15** Feed pagination is one growing `limit`, so page N re-delivers the whole
       window: N pages cost 30+60+90+… document reads, quadratic in pages. Chosen at
       **P2-12** so every page stays live and a reaction on an old message updates in

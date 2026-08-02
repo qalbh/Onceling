@@ -746,3 +746,112 @@ describe('P2-12 — the client\'s own payloads', () => {
     }
   });
 });
+
+// P3-01 bounded `untilClosed`, which used to gate on state alone and stay
+// readable for as long as it stayed `opening`. The ceiling is the same hour
+// isWellFormedItem already caps revealDurationSeconds at, so the invariant is
+// uniform: no reveal session outlasts an hour.
+describe('P3-01 — the untilClosed ceiling', () => {
+  const hoursAgo = (n) => new Date(Date.now() - n * 3600 * 1000);
+
+  test('an untilClosed body is readable inside the hour', async () => {
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      const raw = c.firestore();
+      await setDoc(doc(raw, 'items', 'uc-fresh'), item({
+        type: 'secret', secretState: 'opening', body: null,
+        openingStartedAt: new Date(Date.now() - 60 * 1000),
+      }));
+      await setDoc(doc(raw, 'secretBodies', 'uc-fresh'), {
+        coupleId: OURS, senderId: ALICE, body: 'still readable',
+        createdAt: new Date(),
+      });
+    });
+    await assertSucceeds(getDoc(doc(db(BOB), 'secretBodies', 'uc-fresh')));
+  });
+
+  test('an untilClosed body is DENIED past the hour', async () => {
+    // The case that used to be readable forever. A reader who never finishes
+    // would otherwise leave the text on the server indefinitely, which is the
+    // retention brief §10 promises against.
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      const raw = c.firestore();
+      await setDoc(doc(raw, 'items', 'uc-stale'), item({
+        type: 'secret', secretState: 'opening', body: null,
+        openingStartedAt: hoursAgo(2),
+      }));
+      await setDoc(doc(raw, 'secretBodies', 'uc-stale'), {
+        coupleId: OURS, senderId: ALICE, body: 'should be unreachable',
+        createdAt: new Date(),
+      });
+    });
+    await assertFails(getDoc(doc(db(BOB), 'secretBodies', 'uc-stale')));
+  });
+
+  test('a timed secret keeps its own shorter window, not the ceiling', async () => {
+    // The ceiling is a backstop, never a promotion: a 30s secret must not
+    // become readable for an hour because the fallback exists.
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      const raw = c.firestore();
+      await setDoc(doc(raw, 'items', 'timed-stale'), item({
+        type: 'secret', secretState: 'opening', body: null,
+        revealDurationSeconds: 30,
+        openingStartedAt: new Date(Date.now() - 5 * 60 * 1000),
+      }));
+      await setDoc(doc(raw, 'secretBodies', 'timed-stale'), {
+        coupleId: OURS, senderId: ALICE, body: 'expired long ago',
+        createdAt: new Date(),
+      });
+    });
+    await assertFails(getDoc(doc(db(BOB), 'secretBodies', 'timed-stale')));
+  });
+});
+
+// Raised by the P3-01 audit: the Admin SDK stamps `openingStartedAt`, which
+// itemKeysFor('secret') did not list. Reactions still worked because
+// isWellFormedItem does not run on update — but that is a coincidence worth
+// pinning, and the key set now matches the stored shape either way.
+describe('P3-01 — a stamped secret is still a normal item', () => {
+  test('the recipient can still react to a secret being opened', async () => {
+    await assertSucceeds(
+      updateDoc(doc(db(BOB), 'items', 'opening-1'), {
+        [`reactions.${BOB}`]: '🥹',
+      }),
+    );
+  });
+
+  test('reacting still cannot smuggle a state change alongside it', async () => {
+    await assertFails(
+      updateDoc(doc(db(BOB), 'items', 'opening-1'), {
+        [`reactions.${BOB}`]: '🥹',
+        secretState: 'opened',
+      }),
+    );
+  });
+
+  test('a client still cannot create an item already `opening`', async () => {
+    // The path that would self-authorise a body read.
+    await assertFails(
+      setDoc(doc(db(ALICE), 'items', 'self-open'), item({
+        type: 'secret',
+        secretState: 'opening',
+        openingStartedAt: serverTimestamp(),
+        revealDurationSeconds: 30,
+        body: null,
+        createdAt: serverTimestamp(),
+      })),
+    );
+  });
+
+  test('a client cannot stamp openingStartedAt on a sealed create either', async () => {
+    await assertFails(
+      setDoc(doc(db(ALICE), 'items', 'presrtamped'), item({
+        type: 'secret',
+        secretState: 'sealed',
+        openingStartedAt: serverTimestamp(),
+        revealDurationSeconds: 30,
+        body: null,
+        createdAt: serverTimestamp(),
+      })),
+    );
+  });
+});

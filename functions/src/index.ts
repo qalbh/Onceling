@@ -21,4 +21,9 @@ export {
 } from "./pairing.js";
 export { setMood } from "./mood.js";
 export { ensureUserProfile } from "./profile.js";
+export {
+  beginReveal,
+  completeReveal,
+  sweepExpiredRevealsScheduled,
+} from "./secret.js";
 export { sweepUnpairedCouple, unpair } from "./unpair.js";

@@ -13,6 +13,7 @@ import 'package:couple_app/features/pairing/couple_names.dart';
 import 'package:couple_app/features/pairing/models/couple.dart';
 import 'package:couple_app/features/pairing/models/pairing_request.dart';
 import 'package:couple_app/features/pairing/pairing_service.dart';
+import 'package:couple_app/features/secret/secret_service.dart';
 
 /// The redirect only ever asks "is there a user" — no member is touched, so a
 /// null-returning [noSuchMethod] is safe here and fails loudly anywhere else.
@@ -119,6 +120,61 @@ class FakeMoodService implements MoodService {
   Future<void> setMood({required String emoji, required String note}) async {
     calls.add((emoji: emoji, note: note));
     if (error case final failure?) throw failure;
+  }
+}
+
+/// Records the two reveal transitions; never reaches the Functions emulator.
+///
+/// Defaults model the happy path: a window that opened just now and a body to
+/// read. Each failure the screen has to handle gets its own switch, because
+/// they are genuinely different outcomes and collapsing them would hide which
+/// one the screen mishandles.
+class FakeSecretService implements SecretService {
+  FakeSecretService({
+    this.body = 'I already booked the thing for your birthday. Act surprised.',
+    this.window = const Duration(seconds: 30),
+    this.startedAt,
+    this.beginError,
+    this.bodyError,
+    this.completeError,
+    this.alreadyOpening = false,
+  });
+
+  final String body;
+  final Duration window;
+
+  /// Lets a test open a window that is already partly, or entirely, spent.
+  final DateTime? startedAt;
+
+  final Object? beginError;
+  final Object? bodyError;
+  final Object? completeError;
+  final bool alreadyOpening;
+
+  final List<String> calls = [];
+
+  @override
+  Future<RevealWindow> beginReveal(String itemId) async {
+    calls.add('beginReveal:$itemId');
+    if (beginError case final error?) throw error;
+    return RevealWindow(
+      openingStartedAt: startedAt ?? DateTime.now(),
+      window: window,
+      alreadyOpening: alreadyOpening,
+    );
+  }
+
+  @override
+  Future<String> readBody(String itemId) async {
+    calls.add('readBody:$itemId');
+    if (bodyError case final error?) throw error;
+    return body;
+  }
+
+  @override
+  Future<void> completeReveal(String itemId) async {
+    calls.add('completeReveal:$itemId');
+    if (completeError case final error?) throw error;
   }
 }
 
@@ -238,9 +294,12 @@ List<Override> signedInOverrides({
   // the writes all run for real — only the backend is fake.
   FakeFirebaseFirestore? firestore,
   MoodService? mood,
+  SecretService? secret,
 }) => [
   if (firestore case final db?) firestoreProvider.overrideWithValue(db),
   if (mood case final service?) moodServiceProvider.overrideWithValue(service),
+  if (secret case final service?)
+    secretServiceProvider.overrideWithValue(service),
   authStateProvider.overrideWith((ref) => Stream.value(FakeUser())),
   currentUserProvider.overrideWith(
     (ref) => Stream.value(

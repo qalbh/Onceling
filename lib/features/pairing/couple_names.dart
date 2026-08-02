@@ -67,9 +67,6 @@ final anniversaryLineProvider = Provider<String>((ref) {
       'since ${formatCalendarDate(anniversary)}';
 });
 
-/// The clock, behind a provider so tests can pin it.
-final nowProvider = Provider<DateTime Function()>((ref) => DateTime.now);
-
 /// The anniversary as a settings row shows it — the date alone, no day count.
 ///
 /// Falls back to "Not set" rather than [unknownAnniversary]: in a list of

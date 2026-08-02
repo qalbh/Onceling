@@ -9,12 +9,21 @@ import '../features/auth/profile_service.dart';
 import '../features/mood/mood_service.dart';
 import '../features/pairing/models/pairing_request.dart';
 import '../features/pairing/pairing_service.dart';
+import '../features/secret/secret_service.dart';
 
 /// Riverpod roots for the Firebase SDKs.
 ///
 /// Deliberately plain declarations — no `@riverpod`, no `build_runner`. Reading
 /// the SDKs through providers rather than calling `.instance` inside widgets is
 /// what makes them overridable in tests and in the emulator.
+
+/// The clock, behind a provider so tests can pin it.
+///
+/// Shared rather than per-feature since **P3-01**: the anniversary line counts
+/// days from it, and the secret reveal's countdown measures a window against
+/// it. A countdown that read `DateTime.now()` directly could not be tested at
+/// all — `tester.pump` advances the fake async clock, never the wall clock.
+final nowProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
 /// The signed-in session's auth handle.
 final firebaseAuthProvider = Provider<FirebaseAuth>(
@@ -42,6 +51,14 @@ final functionsProvider = Provider<FirebaseFunctions>(
 /// Client edge of the pairing callables.
 final pairingServiceProvider = Provider<PairingService>(
   (ref) => FirebaseFunctionsPairingService(ref.watch(functionsProvider)),
+);
+
+/// Client edge of the two reveal transitions (**P3-01**).
+final secretServiceProvider = Provider<SecretService>(
+  (ref) => FirebaseSecretService(
+    ref.watch(functionsProvider),
+    ref.watch(firestoreProvider),
+  ),
 );
 
 /// Client edge of the mood callable (**P2-12**).

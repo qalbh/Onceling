@@ -1193,3 +1193,302 @@ describe("respondToPairing — anniversary defaults to the pairing date (M-10)",
     );
   });
 });
+
+describe("P3-01 — beginReveal and completeReveal", () => {
+  const secret = requireFromFunctions("./lib/secret.js");
+
+  const readAll = (name) =>
+    admin(async (db) => {
+      const snap = await getDocs(collection(db, name));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    });
+
+  /** A real couple with a real sealed secret from `a` to `b`. */
+  async function coupleWithSecret({ durationSeconds = 30 } = {}) {
+    const a = await newUser();
+    const b = await newUser();
+    await seedProfile(a.uid);
+    await seedProfile(b.uid);
+    const { code } = (await b.call("ensurePairingCode")).data;
+    const { requestId } = (await a.call("requestPairing", { code })).data;
+    const { coupleId } = (
+      await b.call("respondToPairing", { requestId, accept: true })
+    ).data;
+
+    const itemId = "secret-under-test";
+    await admin(async (db) => {
+      await setDoc(doc(db, "items", itemId), {
+        coupleId,
+        senderId: a.uid,
+        type: "secret",
+        secretState: "sealed",
+        heldFullCountdown: false,
+        reactions: {},
+        createdAt: new Date(),
+        ...(durationSeconds == null ? {} : { revealDurationSeconds: durationSeconds }),
+      });
+      await setDoc(doc(db, "secretBodies", itemId), {
+        coupleId,
+        senderId: a.uid,
+        body: "the surprise is a dog",
+        createdAt: new Date(),
+      });
+    });
+
+    return { a, b, coupleId, itemId };
+  }
+
+  test("the recipient opens the window", async () => {
+    const { b, itemId } = await coupleWithSecret();
+
+    const { data } = await b.call("beginReveal", { itemId });
+    assert.ok(data.openingStartedAt, "no openingStartedAt returned");
+    assert.equal(data.windowSeconds, 30);
+    assert.equal(data.alreadyOpening, false);
+
+    const item = await readDoc(`items/${itemId}`);
+    assert.equal(item.secretState, "opening");
+    assert.ok(item.openingStartedAt);
+  });
+
+  test("the SENDER cannot open their own secret", async () => {
+    // The rule denies the sender reading the body back; the callable must
+    // agree, or it becomes the way around the rule.
+    const { a, itemId } = await coupleWithSecret();
+    await assert.rejects(
+      () => a.call("beginReveal", { itemId }),
+      /own secret/i,
+    );
+    assert.equal((await readDoc(`items/${itemId}`)).secretState, "sealed");
+  });
+
+  test("a non-member cannot touch either transition", async () => {
+    const { itemId } = await coupleWithSecret();
+    const outsider = await newUser();
+    await seedProfile(outsider.uid);
+
+    await assert.rejects(
+      () => outsider.call("beginReveal", { itemId }),
+      /Not your couple/i,
+    );
+    await assert.rejects(
+      () => outsider.call("completeReveal", { itemId }),
+      /Not your couple/i,
+    );
+  });
+
+  test("beginReveal is idempotent and does NOT restart the clock", async () => {
+    // The whole point: a retry after a failed body read must not buy the
+    // reader another full window.
+    const { b, itemId } = await coupleWithSecret();
+
+    const first = (await b.call("beginReveal", { itemId })).data;
+    await new Promise((r) => setTimeout(r, 1200));
+    const second = (await b.call("beginReveal", { itemId })).data;
+
+    assert.equal(second.openingStartedAt, first.openingStartedAt);
+    assert.equal(second.alreadyOpening, true);
+  });
+
+  test("an already-opened secret cannot be reopened", async () => {
+    const { b, itemId } = await coupleWithSecret();
+    await b.call("beginReveal", { itemId });
+    await b.call("completeReveal", { itemId });
+
+    await assert.rejects(
+      () => b.call("beginReveal", { itemId }),
+      /Already opened/i,
+    );
+  });
+
+  test("completeReveal destroys the body and keeps the tombstone", async () => {
+    const { b, itemId } = await coupleWithSecret();
+    await b.call("beginReveal", { itemId });
+    await b.call("completeReveal", { itemId });
+
+    // Q1: hard delete. No retention, no recoverable copy.
+    const bodies = await readAll("secretBodies");
+    assert.equal(bodies.length, 0, "the body survived");
+
+    const item = await readDoc(`items/${itemId}`);
+    assert.equal(item.secretState, "opened");
+    assert.ok(item.openedAt, "no openedAt stamped");
+    assert.equal(item.senderId != null, true, "the tombstone lost its sender");
+  });
+
+  test("completeReveal is idempotent", async () => {
+    const { b, itemId } = await coupleWithSecret();
+    await b.call("beginReveal", { itemId });
+
+    const first = (await b.call("completeReveal", { itemId })).data;
+    const second = (await b.call("completeReveal", { itemId })).data;
+
+    assert.equal(first.completed, true);
+    assert.equal(second.alreadyOpened, true);
+  });
+
+  test("concurrent completeReveal deletes the body once, with no error", async () => {
+    const { b, itemId } = await coupleWithSecret();
+    await b.call("beginReveal", { itemId });
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 5 }, () => b.call("completeReveal", { itemId })),
+    );
+    const rejected = results.filter((r) => r.status === "rejected");
+    assert.equal(rejected.length, 0, "a concurrent caller saw an error");
+
+    const completed = results.filter(
+      (r) => r.status === "fulfilled" && r.value.data.completed,
+    );
+    assert.equal(completed.length, 1, "the body was deleted more than once");
+    assert.equal((await readAll("secretBodies")).length, 0);
+  });
+
+  test("heldFullCountdown is derived server-side, not taken from the caller", async () => {
+    // What the SENDER is told. An app about honesty should not let one side
+    // author the other side's notification.
+    const { b, itemId } = await coupleWithSecret();
+    await b.call("beginReveal", { itemId });
+    await b.call("completeReveal", { itemId, heldFullCountdown: true });
+
+    // Completed immediately, so the 30s countdown was NOT held.
+    assert.equal((await readDoc(`items/${itemId}`)).heldFullCountdown, false);
+  });
+
+  test("completing a secret that was never opened is refused", async () => {
+    const { b, itemId } = await coupleWithSecret();
+    await assert.rejects(
+      () => b.call("completeReveal", { itemId }),
+      /not open/i,
+    );
+  });
+
+  test("anonymous callers are rejected by both", async () => {
+    const { itemId } = await coupleWithSecret();
+    const call = anonCaller();
+    await assert.rejects(() => call("beginReveal", { itemId }), /Sign in/i);
+    await assert.rejects(() => call("completeReveal", { itemId }), /Sign in/i);
+  });
+});
+
+describe("P3-01 — the expired-window sweep", () => {
+  const secret = requireFromFunctions("./lib/secret.js");
+
+  const readAll = (name) =>
+    admin(async (db) => {
+      const snap = await getDocs(collection(db, name));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    });
+
+  /** An item stuck in `opening`, as a phone dying mid-reveal leaves it. */
+  async function abandoned(id, { startedMinutesAgo, durationSeconds }) {
+    await admin(async (db) => {
+      await setDoc(doc(db, "items", id), {
+        coupleId: "couple-x",
+        senderId: "uid-sender",
+        type: "secret",
+        secretState: "opening",
+        openingStartedAt: new Date(Date.now() - startedMinutesAgo * 60_000),
+        heldFullCountdown: false,
+        reactions: {},
+        createdAt: new Date(),
+        ...(durationSeconds == null ? {} : { revealDurationSeconds: durationSeconds }),
+      });
+      await setDoc(doc(db, "secretBodies", id), {
+        coupleId: "couple-x",
+        senderId: "uid-sender",
+        body: "abandoned",
+        createdAt: new Date(),
+      });
+    });
+  }
+
+  test("collects a timed secret whose window is long past", async () => {
+    await abandoned("stale", { startedMinutesAgo: 30, durationSeconds: 30 });
+
+    const result = await secret.sweepExpiredReveals(adminDb());
+    assert.equal(result.completed, 1);
+
+    assert.equal((await readAll("secretBodies")).length, 0);
+    assert.equal((await readDoc("items/stale")).secretState, "opened");
+  });
+
+  test("does NOT race a live reveal", async () => {
+    // The constraint that decides the design: a countdown still running has a
+    // body the rule still serves, and completing it would delete the text
+    // mid-sentence.
+    await abandoned("live", { startedMinutesAgo: 0, durationSeconds: 30 });
+
+    const result = await secret.sweepExpiredReveals(adminDb());
+    assert.equal(result.completed, 0);
+    assert.equal((await readAll("secretBodies")).length, 1);
+    assert.equal((await readDoc("items/live")).secretState, "opening");
+  });
+
+  test("leaves a just-expired secret alone until the grace period passes", async () => {
+    // Expired by the rule, but only seconds ago — clock skew between a device
+    // and the server must not cost anyone their reveal.
+    await abandoned("just-over", { startedMinutesAgo: 1, durationSeconds: 30 });
+
+    const result = await secret.sweepExpiredReveals(adminDb());
+    assert.equal(result.completed, 0, "swept inside the grace period");
+  });
+
+  test("collects an untilClosed secret at the hour ceiling", async () => {
+    // The sharp end: no revealDurationSeconds, so nothing time-based expires
+    // it. Without the ceiling a reader who never finishes leaves the body on
+    // the server forever, which is the retention §10 promises against.
+    await abandoned("uc-stale", {
+      startedMinutesAgo: 70,
+      durationSeconds: null,
+    });
+
+    const result = await secret.sweepExpiredReveals(adminDb());
+    assert.equal(result.completed, 1);
+    assert.equal((await readAll("secretBodies")).length, 0);
+  });
+
+  test("leaves an untilClosed secret alone inside the hour", async () => {
+    await abandoned("uc-live", { startedMinutesAgo: 5, durationSeconds: null });
+
+    const result = await secret.sweepExpiredReveals(adminDb());
+    assert.equal(result.completed, 0);
+    assert.equal((await readAll("secretBodies")).length, 1);
+  });
+
+  test("collects an opening item with no start time at all", async () => {
+    // Malformed: the rule fails it closed, so nobody can read it and nobody
+    // will ever finish it. Left alone it would sit there forever.
+    await admin(async (db) => {
+      await setDoc(doc(db, "items", "nostart"), {
+        coupleId: "couple-x",
+        senderId: "uid-sender",
+        type: "secret",
+        secretState: "opening",
+        heldFullCountdown: false,
+        reactions: {},
+        createdAt: new Date(),
+        revealDurationSeconds: 30,
+      });
+      await setDoc(doc(db, "secretBodies", "nostart"), {
+        coupleId: "couple-x",
+        senderId: "uid-sender",
+        body: "stranded",
+        createdAt: new Date(),
+      });
+    });
+
+    const result = await secret.sweepExpiredReveals(adminDb());
+    assert.equal(result.completed, 1);
+    assert.equal((await readAll("secretBodies")).length, 0);
+  });
+
+  test("is idempotent — a second pass finds nothing left", async () => {
+    await abandoned("twice", { startedMinutesAgo: 30, durationSeconds: 30 });
+
+    await secret.sweepExpiredReveals(adminDb());
+    const second = await secret.sweepExpiredReveals(adminDb());
+    assert.equal(second.completed, 0);
+    assert.equal(second.examined, 0, "the item is no longer `opening`");
+  });
+});

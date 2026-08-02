@@ -67,7 +67,6 @@ Future<ProviderContainer> pumpFeed(
             child: SecretRevealScreen(
               secret: args.secret,
               senderName: args.senderName,
-              body: args.body,
             ),
             transitionsBuilder: (_, animation, _, child) =>
                 FadeTransition(opacity: animation, child: child),
@@ -564,8 +563,22 @@ void main() {
     });
   });
 
-  group('secrets stay sealed until P3-01', () {
-    testWidgets('holding to open admits it cannot open yet', (tester) async {
+  group('secrets — the reveal, end to end (P3-01)', () {
+    Future<void> holdToOpen(WidgetTester tester) async {
+      // longPress() releases too early for the fill to complete, so drive it.
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('PRESS & HOLD TO OPEN')),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 150));
+      }
+      await gesture.up();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400)); // route transition
+    }
+
+    Future<FakeFirebaseFirestore> seedSealedSecret() async {
       final db = FakeFirebaseFirestore();
       await seedItem(
         db,
@@ -578,29 +591,82 @@ void main() {
           'heldFullCountdown': false,
         },
       );
+      return db;
+    }
+
+    testWidgets('holding opens it, and the body appears', (tester) async {
+      // Rewritten at P3-01. It used to assert the reveal admitted it could not
+      // open, because no transition existed. Both now do.
+      final db = await seedSealedSecret();
+      final secret = FakeSecretService();
+      await pumpFeed(
+        tester,
+        db: db,
+        extra: [
+          ...signedInOverrides(
+            coupleId: ourCouple,
+            firestore: db,
+            secret: secret,
+          ),
+        ],
+      );
+
+      await holdToOpen(tester);
+      // Still sealed while the choreography runs — nothing committed yet.
+      expect(secret.calls, isEmpty);
+
+      await tester.pump(const Duration(milliseconds: 1400));
+      await tester.pump(const Duration(milliseconds: 1000));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.text(secret.body), findsOneWidget);
+      expect(secret.calls.first, startsWith('beginReveal:'));
+    });
+
+    testWidgets('the sender is never offered the gesture', (tester) async {
+      // The callable refuses them too, but the affordance should not be there
+      // in the first place.
+      final db = await seedSealedSecret();
+      await pumpFeed(
+        tester,
+        db: db,
+        viewerId: them,
+        displayName: 'Devon',
+        extra: [
+          ...signedInOverrides(
+            uid: them,
+            displayName: 'Devon',
+            partnerUid: me,
+            coupleId: ourCouple,
+            firestore: db,
+            secret: FakeSecretService(),
+          ),
+        ],
+      );
+
+      expect(find.text('Secret sent'), findsOneWidget);
+      expect(find.text('PRESS & HOLD TO OPEN'), findsNothing);
+    });
+
+    testWidgets('an opened secret shows only its marker', (tester) async {
+      final db = FakeFirebaseFirestore();
+      await seedItem(
+        db,
+        coupleId: ourCouple,
+        senderId: them,
+        type: 'secret',
+        extra: {
+          'secretState': 'opened',
+          'revealDurationSeconds': 30,
+          'openedAt': Timestamp.fromDate(DateTime(2026, 7, 30, 9, 31)),
+          'heldFullCountdown': true,
+        },
+      );
       await pumpFeed(tester, db: db);
 
-      // longPress() releases too early for the fill to complete, so drive it.
-      final gesture = await tester.startGesture(
-        tester.getCenter(find.text('PRESS & HOLD TO OPEN')),
-      );
-      await tester.pump(const Duration(milliseconds: 600));
-      for (var i = 0; i < 8; i++) {
-        await tester.pump(const Duration(milliseconds: 150));
-      }
-      await gesture.up();
-      await tester.pumpAndSettle();
-
-      // No body was fetched, because none is readable: `secretBodies` grants
-      // `get` only while the item is `opening`, and nothing moves it there.
-      expect(find.text('Not yet'), findsOneWidget);
-      expect(find.text('Leave it sealed'), findsOneWidget);
-
-      await tester.tap(find.text('Leave it sealed'));
-      await tester.pumpAndSettle();
-
-      // Still sealed afterwards. Nothing was consumed.
-      expect(find.text('PRESS & HOLD TO OPEN'), findsOneWidget);
+      expect(find.text('Opened'), findsOneWidget);
+      expect(find.text('PRESS & HOLD TO OPEN'), findsNothing);
     });
   });
 

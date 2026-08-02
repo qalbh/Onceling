@@ -134,23 +134,30 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     );
   }
 
-  /// Opens the reveal, which currently only reports that it cannot open.
+  /// Opens the reveal (**P3-01**).
   ///
-  /// No body is fetched: `secretBodies` is readable only while the item is in
-  /// `opening`, and nothing moves it there yet — **P3-01** owns the
-  /// `sealed -> opening` transition. Rather than pretend, the reveal screen
-  /// says so, and the secret stays sealed for whenever P3-01 lands.
+  /// No body is passed: the reveal screen calls `beginReveal` itself and reads
+  /// `secretBodies/{id}` inside the window that opens, because the only moment
+  /// the body is legible is between the two transitions. Handing it a body
+  /// from here would mean reading it before the server had authorised anything.
+  ///
+  /// The sender never gets here — the sealed card only offers the hold to the
+  /// recipient — but the callable refuses them anyway.
   Future<void> _openSecret(SecretMessage secret) async {
     if (secret.isOpened) return;
 
-    await context.push<SecretRevealResult>(
+    final result = await context.push<SecretRevealResult>(
       AppRoutes.secretReveal,
       extra: SecretRevealArgs(
         secret: secret,
         senderName: ref.read(memberNameResolverProvider)(secret.senderId),
-        body: null,
       ),
     );
+    if (result == null || !mounted) return;
+
+    // The tombstone arrives through the feed listener on its own; this is only
+    // the reader's own confirmation that it is spent.
+    showAppToast(context, 'It is gone now.');
   }
 
   Future<void> _setMood() async {
