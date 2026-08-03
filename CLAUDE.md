@@ -9,7 +9,7 @@ with one, say so instead of silently working around it.
 
 ## Definition of done
 
-A change is not complete until all five hold:
+A change is not complete until all six hold:
 
 1. `flutter analyze` is clean
 2. `flutter test` passes, **and the test count is stated with its delta.** A green
@@ -20,6 +20,9 @@ A change is not complete until all five hold:
 3. `dart format lib test` produces no diff
 4. New behaviour has a test (see Testing)
 5. The relevant box in `STATUS.md` is ticked, in this same change
+6. `npm run lint` passes in `functions/` — eslint only runs as a deploy predeploy
+   hook, which the emulator never invokes. 248 errors accumulated undetected before
+   the first real deploy (**D-21**). Run it with the other suites, not at deploy time.
 
 ---
 
