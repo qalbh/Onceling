@@ -115,6 +115,11 @@ String? resolveRedirect({
 /// Bridges Riverpod state changes into go_router's refreshListenable.
 class _GateNotifier extends ChangeNotifier {
   _GateNotifier(Ref ref) {
+    // **P3-04.** Somewhere has to hold this alive for the app's lifetime, and
+    // the gate is the one provider guaranteed to exist from first frame to
+    // last. Reading it here starts the auth listener that keeps `pushToken` in
+    // step with the session — including clearing it on sign-out.
+    ref.read(pushRegistrationProvider);
     // Re-evaluate the redirect whenever auth or the profile document moves.
     ref.listen(authStateProvider, (_, _) => notifyListeners());
     ref.listen(currentUserProvider, (_, _) => notifyListeners());

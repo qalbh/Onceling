@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/auth/auth_service.dart';
 import '../features/auth/models/user_profile.dart';
 import '../features/auth/profile_service.dart';
 import '../features/mood/mood_service.dart';
+import '../features/notifications/push_service.dart';
 import '../features/pairing/models/pairing_request.dart';
 import '../features/pairing/pairing_service.dart';
 import '../features/secret/secret_service.dart';
@@ -61,6 +65,56 @@ final functionsProvider = Provider<FirebaseFunctions>(
 final pairingServiceProvider = Provider<PairingService>(
   (ref) => FirebaseFunctionsPairingService(ref.watch(functionsProvider)),
 );
+
+/// Client edge of FCM registration (**P3-04**).
+final pushServiceProvider = Provider<PushService>(
+  (ref) => FirebasePushService(
+    FirebaseMessaging.instance,
+    ref.watch(firestoreProvider),
+  ),
+);
+
+/// Keeps `users/{uid}.pushToken` in step with the session (**P3-04**).
+///
+/// Watches auth rather than being called from each sign-in path, so a new one
+/// cannot forget it — Google sign-in landed after this and needed no change.
+/// Sign-out clears the token, which is the case that actually matters: a stale
+/// token keeps delivering a couple's notifications to a handset somebody else
+/// may now be holding.
+final pushRegistrationProvider = Provider<void>((ref) {
+  final service = ref.watch(pushServiceProvider);
+  StreamSubscription<String>? refresh;
+  String? registeredFor;
+
+  ref.onDispose(() => refresh?.cancel());
+
+  ref.listen<AsyncValue<User?>>(authStateProvider, (previous, next) {
+    final user = next.valueOrNull;
+    final previousUid = previous?.valueOrNull?.uid;
+
+    if (user == null) {
+      refresh?.cancel();
+      refresh = null;
+      final leaving = previousUid ?? registeredFor;
+      registeredFor = null;
+      if (leaving != null) unawaited(service.unregister(uid: leaving));
+      return;
+    }
+
+    if (registeredFor == user.uid) return;
+    registeredFor = user.uid;
+    unawaited(service.register(uid: user.uid));
+
+    refresh?.cancel();
+    // FCM rotates without asking. A token we do not follow silently stops
+    // working, and the person never learns why push went quiet.
+    refresh = service.onTokenRefresh.listen((token) {
+      if (service is FirebasePushService) {
+        unawaited(service.store(uid: user.uid, token: token));
+      }
+    });
+  }, fireImmediately: true);
+});
 
 /// Client edge of the two reveal transitions (**P3-01**).
 final secretServiceProvider = Provider<SecretService>(

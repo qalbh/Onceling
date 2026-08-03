@@ -1912,3 +1912,62 @@ describe("PI-02 — markOnboardingSeen", () => {
     );
   });
 });
+
+describe("P3-04 — what a notification is allowed to say (§10)", () => {
+  const notify = requireFromFunctions("./lib/notify.js");
+
+  test("a SECRET carries the sender and nothing else", () => {
+    // The one rule with no discretion. A lock screen showing the words means
+    // the secret was read while the app never registered an open, the body
+    // was never deleted, and the sender was told nothing.
+    const copy = notify.notificationFor("secret", "Maya", null);
+    assert.equal(copy.title, "Maya");
+    assert.equal(copy.body, notify.SECRET_NOTIFICATION_BODY);
+  });
+
+  test("a secret ignores previews even when they are ON", () => {
+    // There is no configuration in which a secret's words reach a lock screen,
+    // so this passes a preview and asserts it is discarded.
+    const copy = notify.notificationFor(
+      "secret",
+      "Maya",
+      "I have never told you this",
+    );
+    assert.equal(copy.body, notify.SECRET_NOTIFICATION_BODY);
+    assert.ok(!copy.body.includes("never told you"));
+  });
+
+  test("previews OFF says something happened, never what", () => {
+    for (const type of ["text", "photo", "status"]) {
+      const copy = notify.notificationFor(type, "Maya", null);
+      assert.equal(copy.title, "Maya");
+      assert.ok(!copy.body.includes("be there in ten"));
+    }
+    assert.equal(
+      notify.notificationFor("text", "Maya", null).body,
+      "sent you a message",
+    );
+  });
+
+  test("previews ON show the message for non-secret types", () => {
+    const copy = notify.notificationFor("text", "Maya", "be there in ten");
+    assert.equal(copy.body, "be there in ten");
+  });
+
+  test("a preview is bounded — a long message cannot flood a lock screen", () => {
+    const copy = notify.notificationFor("text", "Maya", "x".repeat(500));
+    assert.equal(copy.body.length, notify.MAX_PREVIEW);
+  });
+
+  test("a missing name renders something rather than a blank", () => {
+    assert.equal(notify.notificationFor("text", "", null).title,
+      notify.FALLBACK_NAME);
+    assert.equal(notify.notificationFor("text", "   ", null).title,
+      notify.FALLBACK_NAME);
+  });
+
+  test("an emoji shows itself — it is already less than the notification", () => {
+    const copy = notify.notificationFor("emoji", "Maya", "🧋");
+    assert.equal(copy.body, "🧋");
+  });
+});

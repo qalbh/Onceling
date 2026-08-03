@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG ONLY (P2-21).
+
+  Android has blocked cleartext HTTP by default since API 28, and the Local
+  Emulator Suite speaks plain HTTP. Without this the platform branch is correct
+  — the app resolves 10.0.2.2 — and the connection is refused anyway, with an
+  error that names cleartext rather than the host, which is a confusing thing
+  to debug from a sign-in failure.
+
+  This file lives under src/debug/, so it is merged into debug builds only.
+  Release builds keep Android's default and cannot talk cleartext to anything.
+
+  Scoped to the two loopback aliases rather than permitting cleartext
+  everywhere: 10.0.2.2 is the Android emulator's route to the host, 127.0.0.1
+  and localhost cover a device port-forwarded with `adb reverse`. A real phone
+  on the LAN reaching the machine's own IP is deliberately NOT covered — see
+  EmulatorHost, and prefer `adb reverse tcp:8080 tcp:8080` to widening this.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

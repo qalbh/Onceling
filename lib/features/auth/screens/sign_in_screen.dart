@@ -1,20 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../common/app_toast.dart';
+import '../../../common/providers.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/theme_colors.dart';
 import '../../../theme/theme_glyphs.dart';
 import '../widgets/auth_buttons.dart';
 import '../widgets/email_auth_sheet.dart';
+import '../auth_service.dart';
 import '../widgets/floral_hero.dart';
 
 /// Entry screen: brand mark over the bouquet, sign-in options pinned low.
 ///
-/// Email is the working path. Apple (**P2-20**) and Google (**P2-19**) are not
-/// wired to a provider yet, so their buttons sit disabled rather than doing
-/// something misleading — the UI stays, the behaviour waits.
+/// Email and Google both work. Apple (**P2-20**) is still disabled — it needs a
+/// paid Apple Developer account, and a button that opens nothing is worse than
+/// one that is visibly unavailable.
 ///
 /// Nothing here navigates on success: auth-gated routing is **P2-14**.
-class SignInScreen extends StatelessWidget {
+class SignInScreen extends ConsumerStatefulWidget {
   const SignInScreen({
     super.key,
     this.onContinueWithApple,
@@ -25,11 +29,38 @@ class SignInScreen extends StatelessWidget {
   /// Null until **P2-20** wires Apple; the button renders disabled.
   final VoidCallback? onContinueWithApple;
 
-  /// Null until **P2-19** wires Google; the button renders disabled.
+  /// Overrides the built-in Google handler. Tests pass one; the app does not.
   final VoidCallback? onContinueWithGoogle;
 
   /// Defaults to opening [EmailAuthSheet].
   final VoidCallback? onUseEmailOrPhone;
+
+  @override
+  ConsumerState<SignInScreen> createState() => _SignInScreenState();
+}
+
+class _SignInScreenState extends ConsumerState<SignInScreen> {
+  bool _busy = false;
+
+  /// **P2-19.** No navigation on success — the gate sees the auth change and
+  /// moves the whole app, exactly as the email path does. Navigating here too
+  /// would race it.
+  Future<void> _google() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await ref.read(authServiceProvider).signInWithGoogle();
+    } on AuthFailure catch (failure) {
+      if (mounted) showAppToast(context, failure.message);
+    } catch (_) {
+      if (mounted) {
+        showAppToast(context, 'Something went wrong. Try again.');
+      }
+    } finally {
+      // The widget is gone on success — the gate has already routed away.
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,18 +98,20 @@ class SignInScreen extends StatelessWidget {
                         const SizedBox(height: 24),
                         PrimaryAuthButton(
                           label: 'Continue with Apple',
-                          onPressed: onContinueWithApple,
+                          onPressed: widget.onContinueWithApple,
                         ),
                         const SizedBox(height: 14),
                         SecondaryAuthButton(
                           label: 'Continue with Google',
-                          onPressed: onContinueWithGoogle,
+                          onPressed: _busy
+                              ? null
+                              : (widget.onContinueWithGoogle ?? _google),
                         ),
                         const SizedBox(height: 6),
                         UnderlinedTextButton(
                           label: 'Use email or phone',
                           onPressed:
-                              onUseEmailOrPhone ??
+                              widget.onUseEmailOrPhone ??
                               () => EmailAuthSheet.show(context),
                         ),
                         const SizedBox(height: 14),

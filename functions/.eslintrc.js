@@ -28,7 +28,12 @@ module.exports = {
   rules: {
     "quotes": ["error", "double"],
     "import/no-unresolved": 0,
-    "indent": ["error", 2],
+    // `SwitchCase: 1` matches Prettier, which indents `case` inside `switch`;
+    // the google preset expects it flush with the `switch`. Surfaced by the
+    // first switch statement in functions/ (notify.ts, P3-04) — the same
+    // Prettier-vs-preset disagreement as the rules below, found later only
+    // because nothing here had a switch until now.
+    "indent": ["error", 2, { SwitchCase: 1 }],
 
     // --- Deviations from the `google` preset, and why ---
     //

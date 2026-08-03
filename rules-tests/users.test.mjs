@@ -303,3 +303,59 @@ describe("PI-02 — onboardingSeenAt is server-owned", () => {
     );
   });
 });
+
+describe("P3-04 — pushToken is client-owned", () => {
+  test("the owner can set it", async () => {
+    await seedProfile(ALICE);
+    await assertSucceeds(
+      updateDoc(doc(db(ALICE), "users", ALICE), {
+        pushToken: "fcm-token-abc",
+        pushTokenUpdatedAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  test("the owner can CLEAR it — this is sign-out", async () => {
+    // The case that matters: a stale token keeps delivering a couple's
+    // notifications to a handset somebody else may now be holding.
+    await seedProfile(ALICE, { pushToken: "fcm-token-abc" });
+    await assertSucceeds(
+      updateDoc(doc(db(ALICE), "users", ALICE), { pushToken: null }),
+    );
+  });
+
+  test("the owner can REPLACE it — this is rotation", async () => {
+    await seedProfile(ALICE, { pushToken: "old" });
+    await assertSucceeds(
+      updateDoc(doc(db(ALICE), "users", ALICE), { pushToken: "new" }),
+    );
+  });
+
+  test("nobody can write another person's token", async () => {
+    await seedProfile(ALICE);
+    await assertFails(
+      updateDoc(doc(db(BOB), "users", ALICE), { pushToken: "hijack" }),
+    );
+  });
+
+  test("an absurd token is rejected", async () => {
+    await seedProfile(ALICE);
+    await assertFails(
+      updateDoc(doc(db(ALICE), "users", ALICE), {
+        pushToken: "x".repeat(5000),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(db(ALICE), "users", ALICE), { pushToken: 42 }),
+    );
+  });
+
+  test("a profile carrying a token can still be edited", async () => {
+    // Same trap as onboardingSeenAt: isWellFormedProfile runs on UPDATE, so a
+    // field missing from hasOnly breaks every unrelated edit.
+    await seedProfile(ALICE, { pushToken: "fcm-token-abc" });
+    await assertSucceeds(
+      updateDoc(doc(db(ALICE), "users", ALICE), { displayName: "Alice B" }),
+    );
+  });
+});

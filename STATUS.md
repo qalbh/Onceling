@@ -573,16 +573,60 @@ there is data.
       *`tools/seed-emulator.mjs`, run with `cd tools && npm run seed`. Codes are
       claimed by calling `claimPairingCode` — the same function `ensurePairingCode`
       wraps — so seeded state is indistinguishable from a real user's.*
-- [ ] **P2-19** Google sign-in wiring — SHA-1 and SHA-256 fingerprints registered in
-      Firebase (Android), reversed client ID as URL scheme in `Info.plist` (iOS),
-      `google_sign_in` package. The provider is already enabled in the console with
-      the public-facing name set to Onceling; only the platform config and client
-      code remain.
-- [ ] **P2-20** Sign in with Apple — required by App Store Review Guideline 4.8 once
+- [x] **P2-19** Google sign-in.
+      *Debug fingerprints from `./gradlew signingReport`, both registered on the dev
+      Android app:*
+      *SHA-1 `7B:6F:B8:53:C8:92:A2:E5:43:63:DB:A8:96:E6:E9:7A:6C:B6:9C:65`*
+      *SHA-256 `89:C9:9B:4A:4D:61:39:E9:19:DF:98:A3:19:FF:46:85:6E:B9:F0:45:0D:A3:BD:AA:7F:C2:87:11:AA:D5:FF:85`*
+      *Both from the standard `~/.android/debug.keystore`. `flutterfire configure`
+      re-run, so `google-services.json` now carries an ANDROID oauth client bound to
+      the SHA-1 plus the WEB client Android needs to mint an ID token. iOS got the
+      reversed client ID as a `CFBundleURLTypes` scheme — without it the browser
+      authenticates and never comes back.*
+      ***No client id is pasted anywhere.*** *The google-services Gradle plugin emits
+      `R.string.default_web_client_id` and iOS reads `CLIENT_ID` from its plist; both
+      files are gitignored, so `initialize()` takes no argument rather than hardcoding
+      a value out of them.*
+      ***One shape of user document.*** *`signInWithGoogle` ends at the same
+      `_settleProfile` as email, so the profile is written by the same
+      `ensureUserProfile` callable. That matters because **P2-35** writes a fixed
+      literal server-side — a provider that bypassed it would be the only way a
+      differently-shaped profile could ever exist.*
+      *Sign-out now signs out of Google too. Without it the account picker is skipped
+      next time and the previous person is silently re-selected, which on a shared
+      device is somebody else's account.*
+      *Verified: the button is enabled and reaches the service (test), a cancelled
+      sign-in raises no error (test), a failure shows its message (test), and
+      `GoogleSignIn.instance.initialize()` succeeds on the iOS simulator — meaning it
+      resolved the client id from the plist. **The OAuth flow itself was not completed
+      end to end**: it needs tapping through Google's consent screen and this machine
+      denies `osascript` assistive access.*
+- [ ] **P2-20** Sign in with Apple — **HARD GATE on iOS submission now that P2-19
+      has shipped.** Guideline 4.8 makes it mandatory once a third-party social
+      sign-in is offered, so this blocks **P4-07** and nothing else: Android ships
+      without it, and the simulators test without it.
+      *Needs a paid Apple Developer account.*
+      — required by App Store Review Guideline 4.8 once
       Google sign-in ships. Needs a paid Apple Developer Program membership for the
       Services ID and key. The sign-in screen already has the button.
-- [ ] **P2-21** Platform-branch the emulator host — Android emulators need `10.0.2.2`,
-      not `localhost`. Blocks any Android testing against the emulator.
+- [x] **P2-21** Emulator host per platform.
+      *`EmulatorHost` resolves it: `localhost` for iOS simulators and desktop,
+      `10.0.2.2` for the Android emulator, and a `--dart-define=EMULATOR_HOST=<ip>`
+      override for a real device. **No LAN IP in source** — hardcoding bakes one
+      developer's DHCP lease into the repo where it rots silently; discovery would be
+      scanning or mDNS to save one flag. A test asserts no private-range address is
+      baked in.*
+      ***The platform branch was only half the problem.*** *With the host correct, the
+      AVD still could not reach the suite: Android has blocked cleartext HTTP since
+      API 28 and the emulator speaks plain HTTP. The error names cleartext, not the
+      host, which is a confusing thing to reach from a failed sign-in. Fixed with a
+      `network_security_config.xml` under `src/debug/` — merged into debug builds
+      only, so release keeps Android's default — scoped to `10.0.2.2`, `127.0.0.1`
+      and `localhost` rather than permitting cleartext everywhere. A real phone should
+      use `adb reverse tcp:8080 tcp:8080` rather than widening it.*
+      *Verified both ways: AVD signs in against the local suite with
+      `host=10.0.2.2`, iOS simulator with `host=localhost`, same code.*
+
 - [ ] **P2-22** Replace the duck-typed `toDate()` in `feed_item_mapper.dart` with a
       real `Timestamp` cast now that `cloud_firestore` has landed. Update mapper tests.
 - [x] **P2-23** Send-confirmation sheet — after entering a valid code, confirm before
@@ -863,7 +907,42 @@ there is data.
       `anniversaryDate` (**M-10**), not consecutive posting. They are anniversaries,
       a different register from a daily obligation, which is why they survive a
       forgiving streak unchanged.*
-- [ ] **P3-04** FCM fan-out — secret payloads carry no body and no preview
+- [x] **P3-04** FCM fan-out — secret payloads carry no body and no preview.
+      ***What each type shows.*** *A secret carries **the sender and nothing else**,
+      and the check ignores the preview setting entirely rather than consulting it —
+      there is no configuration in which a secret's words reach a lock screen. A
+      preview would mean the secret was read while the app never registered an open,
+      the body was never deleted and the sender was told nothing: the mechanic
+      defeated end to end.*
+      ***text, photo, status, emoji are a SETTING, defaulting OFF.*** *Brief §5 names
+      couples who share devices, and they are exactly the people for whom a warm,
+      useful preview is the wrong default. Someone on their own phone wants to read
+      "be there in ten" without unlocking; someone whose tablet gets borrowed does
+      not. Neither is a mistake, so neither is a default that fits everyone — and OFF
+      is the direction where being wrong costs nothing, because the reverse would leak
+      once before anyone learned the setting existed. Read from the RECIPIENT's
+      profile: it is their lock screen. Emoji shows itself, being already less
+      revealing than the notification announcing it.*
+      *`pushToken` on `users/{uid}`: stored on sign-in, followed through rotation,
+      **cleared on sign-out**. Driven by a provider watching auth rather than called
+      from each sign-in path, so a new one cannot forget it — Google sign-in landed
+      afterwards and needed no change. The server's copy is cleared before the local
+      one, because the reverse order can leave a token nobody can reach but the
+      fan-out still targets. A dead token is cleared by the fan-out too.*
+      *Also notifies on an incoming pairing request — which is what lets **P2-24**'s
+      waiting screen stop saying the partner sees it next time they open the app — and
+      on an accept. Never the person who caused the event: `partnerOf` excludes them
+      by construction rather than by a comparison someone could forget.*
+      *Deployed to `asia-south1` per the **P3-06** finding.*
+      ***Verified against real dev, up to the radio:*** *all three triggers fire, the
+      recipient is resolved correctly, the payload is built, and a dead token is
+      cleared — confirmed in `notifyOnPairingRequest`'s own logs. **Delivery to a
+      handset is NOT verified**: no physical Android device is attached, and this
+      AVD's Play services is broken (`Unknown calling package name
+      'com.google.android.gms'`) so it cannot mint a token. I expected a
+      `google_apis_playstore` image to work and it did not.*
+      *iOS is fully built and will not deliver until an APNs key is uploaded —
+      **P4-09**, and that is genuinely the only remaining step.*
 - [ ] **P3-05** Rate limiting on any future secret-bearing check. *The pairing half
       moved forward to **P2-27** — it is a **P2-09** dependency, not later polish.*
 - [x] **P3-06** Composite indexes; keep `firestore.indexes.json` in sync
@@ -919,6 +998,17 @@ there is data.
       screenshots, privacy policy
 - [ ] **P4-05** Crashlytics
 - [ ] **P4-06** Upgrade **prod** to Blaze; set a budget alert
+- [ ] **P4-09** Upload an APNs key to Firebase, so iOS push actually delivers.
+      *The client side of **P3-04** is complete on iOS and was built and run on the
+      simulators; `getToken()` simply returns null with no APNs credential. This is a
+      key upload in the Firebase console and nothing else — no code, no rewrite. Needs
+      the paid Apple Developer account, same one **P2-20** and **P4-07** wait on.*
+- [ ] **P4-10** Register the RELEASE keystore's SHA-1 and SHA-256 in Firebase.
+      ***Google sign-in fails on release builds until this is done*** — the classic
+      ships-broken-to-testers bug, because debug builds work perfectly and nothing
+      warns you. The release keystore does not exist yet; create it, register both
+      fingerprints, re-run `flutterfire configure`, and verify on a release build
+      before **P4-07**.
 - [ ] **P4-07** TestFlight → Play internal test *(gated on PI-02)*
 - [ ] **P4-08** Enable App Check (Play Integrity + App Attest) before store
       submission. Attests requests come from the genuine app binary. Complements
@@ -1023,6 +1113,20 @@ Non-blocking. Fix when convenient.
       items. Harmless on a test project and not worth admin credentials to remove,
       but dev is no longer a clean slate — anything that counts documents there
       should know. The verification scripts themselves were deleted.
+- [ ] **D-23** The Firebase plugin family must be upgraded together. Adding
+      `firebase_messaging` at **P3-04** broke the iOS build outright:
+      `firebase_auth` pinned firebase-ios-sdk 12.15.0 while messaging wanted 12.17.0,
+      and SPM refuses to resolve. `cloud_firestore` then stayed pinned by
+      `fake_cloud_firestore` until a full `flutter pub upgrade`. Recovery also needed
+      `flutter clean`, a DerivedData wipe and `flutter precache --ios --force`.
+      **Android builds fine throughout, so this only surfaces on an iOS build** — do
+      not assume a green Android run means the pubspec is coherent.
+- [ ] **D-24** The AVD (`Pixel_10_Pro`, `google_apis_playstore`) cannot mint an FCM
+      token: `SecurityException: Unknown calling package name
+      'com.google.android.gms'`. A Play Store image was expected to work and does not,
+      so **push delivery has never been observed on any device**. Everything up to the
+      radio is verified. Needs a physical Android phone, or a repaired AVD, before
+      P3-04 can be called delivered rather than built.
 - [ ] **D-15** Feed pagination is one growing `limit`, so page N re-delivers the whole
       window: N pages cost 30+60+90+… document reads, quadratic in pages. Chosen at
       **P2-12** so every page stays live and a reaction on an old message updates in

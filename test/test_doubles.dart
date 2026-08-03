@@ -10,6 +10,7 @@ import 'package:couple_app/features/auth/auth_service.dart';
 import 'package:couple_app/features/auth/models/user_profile.dart';
 import 'package:couple_app/features/auth/profile_service.dart';
 import 'package:couple_app/features/mood/mood_service.dart';
+import 'package:couple_app/features/notifications/push_service.dart';
 import 'package:couple_app/features/pairing/couple_names.dart';
 import 'package:couple_app/features/pairing/device_timezone.dart';
 import 'package:couple_app/features/pairing/models/couple.dart';
@@ -17,9 +18,19 @@ import 'package:couple_app/features/pairing/models/pairing_request.dart';
 import 'package:couple_app/features/pairing/pairing_service.dart';
 import 'package:couple_app/features/secret/secret_service.dart';
 
-/// The redirect only ever asks "is there a user" — no member is touched, so a
-/// null-returning [noSuchMethod] is safe here and fails loudly anywhere else.
+/// A signed-in user, for the redirect and for **P3-04**'s token registration.
+///
+/// It used to null everything through [noSuchMethod], on the grounds that the
+/// redirect only asks "is there a user". Push registration then started reading
+/// `uid` and the fake failed loudly — which is what that design was for, but
+/// the answer is to supply the field rather than to guard around a null uid in
+/// production code.
 class FakeUser implements User {
+  FakeUser({this.uid = 'uid-test'});
+
+  @override
+  final String uid;
+
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
@@ -215,6 +226,35 @@ class FakeSecretService implements SecretService {
   }
 }
 
+/// Records token registration; never touches FCM.
+///
+/// **P3-04.** The behaviour worth pinning is `unregister` on sign-out: a stale
+/// token keeps delivering a couple's notifications to a handset somebody else
+/// may now be holding.
+class FakePushService implements PushService {
+  final List<String> calls = [];
+  final _refresh = StreamController<String>.broadcast();
+
+  @override
+  Stream<String> get onTokenRefresh => _refresh.stream;
+
+  /// Simulates FCM rotating the token mid-session.
+  void rotate(String token) => _refresh.add(token);
+
+  @override
+  Future<String?> register({required String uid}) async {
+    calls.add('register:$uid');
+    return 'fake-token-$uid';
+  }
+
+  @override
+  Future<void> unregister({required String uid}) async {
+    calls.add('unregister:$uid');
+  }
+
+  void dispose() => _refresh.close();
+}
+
 /// Writes an `items` document straight into a fake Firestore.
 ///
 /// Bypasses [FeedService] on purpose: seeding is meant to model messages that
@@ -296,7 +336,8 @@ Couple fakeCouple({
 );
 
 /// Overrides for a signed-out session: the gate lands on sign-in.
-List<Override> signedOutOverrides() => [
+List<Override> signedOutOverrides({PushService? push}) => [
+  pushServiceProvider.overrideWithValue(push ?? FakePushService()),
   authStateProvider.overrideWith((ref) => Stream.value(null)),
   currentUserProvider.overrideWith((ref) => Stream.value(null)),
   pairingServiceProvider.overrideWithValue(FakePairingService()),
@@ -339,11 +380,15 @@ List<Override> signedInOverrides({
   FakeFirebaseFirestore? firestore,
   MoodService? mood,
   SecretService? secret,
+  // P3-04. Overridden by default: the real one touches
+  // `FirebaseMessaging.instance`, which throws with no Firebase app.
+  PushService? push,
   // P2-40. Overridden by default because the real reader is a platform
   // channel, which a widget test has no answer for — the call would hang
   // before `respondToPairing` was ever reached.
   String? deviceTimezone = 'Asia/Karachi',
 }) => [
+  pushServiceProvider.overrideWithValue(push ?? FakePushService()),
   deviceTimezoneProvider.overrideWithValue(() async => deviceTimezone),
   if (firestore case final db?) firestoreProvider.overrideWithValue(db),
   if (mood case final service?) moodServiceProvider.overrideWithValue(service),
@@ -404,8 +449,19 @@ class FakeSession {
   String? _coupleId;
 
   User? _user = FakeUser();
+
+  /// **P2-19** — how many times the Google button reached auth.
+  int _googleCalls = 0;
+  int get googleCalls => _googleCalls;
+
+  /// Thrown by the fake's Google path when set, so the failure copy is
+  /// testable without a live account picker.
+  Object? googleError;
   late bool _profilePresent;
   int _recoverCalls = 0;
+
+  /// Exposed so a test can assert the token is cleared on sign-out (P3-04).
+  final push = FakePushService();
 
   final _controller = StreamController<User?>.broadcast();
   final _profiles = StreamController<UserProfile?>.broadcast();
@@ -447,6 +503,8 @@ class FakeSession {
       }),
       authServiceProvider.overrideWithValue(service),
       pairingServiceProvider.overrideWithValue(FakePairingService()),
+      // P3-04: the gate starts push registration on first build.
+      pushServiceProvider.overrideWithValue(push),
       ...pairingStreamOverrides(),
     ];
   }
@@ -454,6 +512,7 @@ class FakeSession {
   void dispose() {
     _controller.close();
     _profiles.close();
+    push.dispose();
   }
 }
 
@@ -479,6 +538,15 @@ class _FakeAuthService implements AuthService {
     required String password,
     String? displayName,
   }) async {
+    _session._set(FakeUser());
+  }
+
+  /// Records the call so P2-19 can assert the button reaches auth without a
+  /// live Google account picker.
+  @override
+  Future<void> signInWithGoogle() async {
+    _session._googleCalls++;
+    if (_session.googleError case final error?) throw error;
     _session._set(FakeUser());
   }
 

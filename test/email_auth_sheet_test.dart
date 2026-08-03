@@ -23,6 +23,9 @@ class FakeAuthService implements AuthService {
   final List<String> calls = [];
 
   @override
+  Future<void> signInWithGoogle() async {}
+
+  @override
   Future<void> recoverProfile() async {
     calls.add('recoverProfile');
   }
@@ -193,11 +196,19 @@ void main() {
     expect(find.text('Something went wrong. Try again.'), findsNothing);
   });
 
-  testWidgets('Apple and Google are visibly disabled until wired', (
-    tester,
-  ) async {
+  testWidgets('Apple stays disabled, Google is wired (P2-19)', (tester) async {
+    // Rewritten at P2-19. This used to assert BOTH were disabled. Google now
+    // works; Apple still needs a paid Apple Developer account (**P2-20**), and
+    // a button that opens nothing is worse than one visibly unavailable.
+    final auth = _RecordingAuth();
+    // A real viewport: at 800x600 these buttons fall below the fold and taps
+    // silently miss, which the sheet helper already learned the hard way.
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(
       ProviderScope(
+        overrides: [authServiceProvider.overrideWithValue(auth)],
         child: MaterialApp(theme: AppTheme.light(), home: const SignInScreen()),
       ),
     );
@@ -216,6 +227,87 @@ void main() {
     );
 
     expect(apple.onPressed, isNull, reason: 'P2-20 has not wired Apple');
-    expect(google.onPressed, isNull, reason: 'P2-19 has not wired Google');
+    expect(google.onPressed, isNotNull, reason: 'P2-19 wired Google');
+
+    await tester.tap(find.text('Continue with Google'));
+    await tester.pumpAndSettle();
+    expect(auth.calls, contains('signInWithGoogle'));
   });
+
+  testWidgets('a cancelled Google sign-in shows no error', (tester) async {
+    // Backing out of the account picker is a decision, not a fault. The
+    // service returns normally on cancel; the screen must stay quiet.
+    final auth = _RecordingAuth();
+    // A real viewport: at 800x600 these buttons fall below the fold and taps
+    // silently miss, which the sheet helper already learned the hard way.
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [authServiceProvider.overrideWithValue(auth)],
+        child: MaterialApp(theme: AppTheme.light(), home: const SignInScreen()),
+      ),
+    );
+
+    await tester.tap(find.text('Continue with Google'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('went wrong'), findsNothing);
+  });
+
+  testWidgets('a failed Google sign-in says so', (tester) async {
+    final auth = _RecordingAuth(
+      error: const AuthFailure('Google sign-in is unavailable on this device.'),
+    );
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [authServiceProvider.overrideWithValue(auth)],
+        child: MaterialApp(theme: AppTheme.light(), home: const SignInScreen()),
+      ),
+    );
+
+    await tester.tap(find.text('Continue with Google'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Google sign-in is unavailable on this device.'),
+      findsOneWidget,
+    );
+  });
+}
+
+/// Records which auth path the sign-in screen took.
+class _RecordingAuth implements AuthService {
+  _RecordingAuth({this.error});
+
+  final Object? error;
+  final List<String> calls = [];
+
+  @override
+  Future<void> signInWithGoogle() async {
+    calls.add('signInWithGoogle');
+    if (error case final failure?) throw failure;
+  }
+
+  @override
+  Future<void> signIn({required String email, required String password}) async {
+    calls.add('signIn');
+  }
+
+  @override
+  Future<void> signUp({
+    required String email,
+    required String password,
+    String? displayName,
+  }) async => calls.add('signUp');
+
+  @override
+  Future<void> signOut() async => calls.add('signOut');
+
+  @override
+  Future<void> recoverProfile() async => calls.add('recoverProfile');
 }

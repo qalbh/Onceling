@@ -27,6 +27,11 @@ export {
   respondToPairing,
 } from "./pairing.js";
 export { setMood } from "./mood.js";
+export {
+  notifyOnItem,
+  notifyOnPairingAccepted,
+  notifyOnPairingRequest,
+} from "./notify.js";
 export { ensureUserProfile, markOnboardingSeen } from "./profile.js";
 export {
   beginReveal,

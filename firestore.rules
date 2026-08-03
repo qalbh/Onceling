@@ -36,7 +36,8 @@ service cloud.firestore {
       return data.keys().hasOnly([
                'displayName', 'avatarUrl', 'coupleId',
                'favoriteEmojis', 'accentColor', 'createdAt', 'pairingCode',
-               'onboardingSeenAt'
+               'onboardingSeenAt', 'pushToken', 'pushTokenUpdatedAt',
+               'notificationPreviews'
              ])
              && data.keys().hasAll([
                   'displayName', 'avatarUrl', 'coupleId',
@@ -57,7 +58,42 @@ service cloud.firestore {
              && data.createdAt is timestamp
              && (!('onboardingSeenAt' in data)
                  || data.onboardingSeenAt == null
-                 || data.onboardingSeenAt is timestamp);
+                 || data.onboardingSeenAt is timestamp)
+             // **P3-04.** Unlike the two server-owned fields above, the client
+             // WRITES this one and must be able to change it — FCM rotates
+             // tokens without asking, and clearing it on sign-out is the whole
+             // point (a stale token follows an account onto a handset somebody
+             // else is holding). So it is bounded and typed here rather than
+             // pinned with fieldUnchanged.
+             //
+             // Safe because it grants no data the writer does not already
+             // have — NOT because the blast radius is their own device. A
+             // member could write a third party's token here and have their
+             // partner's notifications delivered elsewhere; they can already
+             // read every one of those messages and forward them by hand, so
+             // this is a convenience, not an escalation. §10 holds either way:
+             // a secret's notification carries no body by construction, so the
+             // redirected device learns a secret exists and nothing more.
+             && (!('pushToken' in data)
+                 || data.pushToken == null
+                 || (data.pushToken is string
+                     && data.pushToken.size() > 0
+                     && data.pushToken.size() <= 4096))
+             && (!('pushTokenUpdatedAt' in data)
+                 || data.pushTokenUpdatedAt == null
+                 || data.pushTokenUpdatedAt is timestamp)
+             // Whether a lock screen may show message content (**P3-04**).
+             // The person's own preference, so they must be able to change it —
+             // no fieldUnchanged. Absent means off, the default the fan-out
+             // already assumes.
+             //
+             // Caught by the audit: `notify.ts` read this field before the
+             // rules admitted it, which made the "setting" unreachable and
+             // previews permanently off. It failed in the safe direction, but
+             // the code was claiming a choice the data layer did not allow.
+             && (!('notificationPreviews' in data)
+                 || data.notificationPreviews == null
+                 || data.notificationPreviews is bool);
     }
 
     // The caller's couple, read from their own profile.

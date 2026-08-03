@@ -53,6 +53,9 @@ void main() {
         }),
         authServiceProvider.overrideWithValue(service),
         pairingServiceProvider.overrideWithValue(FakePairingService()),
+        // P3-04: the gate starts push registration, which otherwise reaches
+        // FirebaseMessaging.instance with no Firebase app.
+        pushServiceProvider.overrideWithValue(FakePushService()),
         ...pairingStreamOverrides(),
       ],
       child: Consumer(
@@ -269,6 +272,9 @@ class _StreamAuth implements AuthService {
   Future<void> signOut() async => auth.add(null);
 
   @override
+  Future<void> signInWithGoogle() async {}
+
+  @override
   Future<void> recoverProfile() async {}
 }
 
@@ -284,6 +290,9 @@ class _FailingAuth implements AuthService {
     required String password,
     String? displayName,
   }) async => signIn(email: email, password: password);
+
+  @override
+  Future<void> signInWithGoogle() async {}
 
   @override
   Future<void> signOut() async {}

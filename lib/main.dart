@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'common/app_router.dart';
+import 'common/emulator_host.dart';
 import 'common/providers.dart';
 import 'firebase_options_dev.dart';
 import 'theme/app_theme.dart';
@@ -30,13 +31,14 @@ Future<void> main() async {
 /// build would silently send real users' data nowhere, and that is much easier
 /// to spot here than scattered through `main()`.
 ///
-/// Ports match the ones pinned in CLAUDE.md. `localhost` is correct for iOS
-/// simulators and desktop; an Android emulator reaches the host at `10.0.2.2`,
-/// so this needs a platform branch before Android is tested against it.
+/// Ports match the ones pinned in CLAUDE.md. The *host* is per-platform and
+/// resolved by [EmulatorHost] — see there for why a real device has to be told
+/// rather than guessing.
 void _connectToEmulators() {
   if (!kDebugMode) return;
 
-  const host = 'localhost';
+  final host = EmulatorHost.resolved;
+  debugPrint('[emulator] host=$host explicit=${EmulatorHost.isExplicit}');
   FirebaseAuth.instance.useAuthEmulator(host, 9099);
   FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
   // **The region must match `functionsProvider`**, not the default instance.
