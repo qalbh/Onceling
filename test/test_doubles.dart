@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:couple_app/common/providers.dart';
 import 'package:couple_app/features/auth/auth_service.dart';
 import 'package:couple_app/features/auth/models/user_profile.dart';
+import 'package:couple_app/features/auth/profile_service.dart';
 import 'package:couple_app/features/mood/mood_service.dart';
 import 'package:couple_app/features/pairing/couple_names.dart';
 import 'package:couple_app/features/pairing/device_timezone.dart';
@@ -28,6 +29,11 @@ UserProfile fakeProfile({
   String displayName = 'Maya',
   String? coupleId,
   String? pairingCode,
+  // Defaults to seen so every pre-P3-07 test keeps testing what it was
+  // written to test rather than landing on onboarding. A bool rather than a
+  // DateTime because DateTime has no const constructor and the exact stamp is
+  // never what a test cares about.
+  bool onboardingSeen = true,
   // The eight ensureUserProfile writes, so tray-driven tests exercise the
   // real shape rather than a one-emoji stub.
   List<String> favoriteEmojis = const [
@@ -46,6 +52,7 @@ UserProfile fakeProfile({
   favoriteEmojis: favoriteEmojis,
   coupleId: coupleId,
   pairingCode: pairingCode,
+  onboardingSeenAt: onboardingSeen ? DateTime(2026, 1, 1) : null,
 );
 
 /// Records calls; never reaches the Functions emulator.
@@ -105,6 +112,32 @@ class FakePairingService implements PairingService {
     // one, and that a decline does not.
     calls.add('respondToPairing:$requestId:$accept:${timezone ?? '-'}');
     return accept ? (coupleId ?? 'couple-1') : null;
+  }
+}
+
+/// Records calls; never reaches the Functions emulator.
+///
+/// **PI-02**: `markOnboardingSeen` is what the gate keys on, so a test needs to
+/// assert it was called without a live Functions emulator.
+class FakeProfileService implements ProfileService {
+  FakeProfileService({this.markError});
+
+  /// Thrown by [markOnboardingSeen] when set — drives the path where the
+  /// record fails and the reader must not be trapped on the disclosure.
+  final Object? markError;
+
+  final List<String> calls = [];
+
+  @override
+  Future<ProfileState> ensureProfile({String? displayName}) async {
+    calls.add('ensureProfile');
+    return const ProfileState(created: false);
+  }
+
+  @override
+  Future<void> markOnboardingSeen() async {
+    calls.add('markOnboardingSeen');
+    if (markError case final error?) throw error;
   }
 }
 
@@ -291,6 +324,7 @@ List<Override> signedInOverrides({
   String displayName = 'Maya',
   String? coupleId,
   String? pairingCode = 'MK4Q7B',
+  bool onboardingSeen = true,
   PairingService? pairing,
   List<PairingRequest> incoming = const [],
   PairingRequest? outgoing,
@@ -323,6 +357,7 @@ List<Override> signedInOverrides({
         displayName: displayName,
         coupleId: coupleId,
         pairingCode: pairingCode,
+        onboardingSeen: onboardingSeen,
       ),
     ),
   ),

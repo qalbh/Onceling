@@ -20,7 +20,7 @@ export {
   respondToPairing,
 } from "./pairing.js";
 export { setMood } from "./mood.js";
-export { ensureUserProfile } from "./profile.js";
+export { ensureUserProfile, markOnboardingSeen } from "./profile.js";
 export {
   beginReveal,
   completeReveal,

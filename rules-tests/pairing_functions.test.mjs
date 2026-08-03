@@ -1842,3 +1842,73 @@ describe("P3-02 — the streak against real data", () => {
     assert.equal((await readDoc("couples/c-sweep")).streakCount, 1);
   });
 });
+
+describe("PI-02 — markOnboardingSeen", () => {
+  test("stamps the profile, server-side", async () => {
+    const user = await newUser();
+    await seedProfile(user.uid);
+
+    const { data } = await user.call("markOnboardingSeen", {});
+    assert.equal(data.alreadySeen, false);
+
+    const profile = await readDoc(`users/${user.uid}`);
+    assert.ok(profile.onboardingSeenAt, "no stamp written");
+    assert.ok(
+      typeof profile.onboardingSeenAt.toDate === "function",
+      "not a server timestamp",
+    );
+  });
+
+  test("is SET-ONCE — a second call does not refresh it", async () => {
+    // The stamp must keep meaning "when they first saw it" rather than "when
+    // they last opened the app": it is the record that a required disclosure
+    // was made, and §10 names the regulatory risk.
+    const user = await newUser();
+    await seedProfile(user.uid);
+
+    await user.call("markOnboardingSeen", {});
+    const first = await readDoc(`users/${user.uid}`);
+
+    await new Promise((r) => setTimeout(r, 1100));
+    const { data } = await user.call("markOnboardingSeen", {});
+    const second = await readDoc(`users/${user.uid}`);
+
+    assert.equal(data.alreadySeen, true);
+    assert.equal(
+      second.onboardingSeenAt.toMillis(),
+      first.onboardingSeenAt.toMillis(),
+      "the stamp moved",
+    );
+  });
+
+  test("a client cannot write the stamp itself", async () => {
+    // Evidence the client can author is weaker evidence. The users rules cap
+    // the permitted key set, so this field is not in it.
+    const user = await newUser();
+    await seedProfile(user.uid);
+
+    await assert.rejects(
+      () =>
+        testEnv
+          .authenticatedContext(user.uid)
+          .firestore()
+          .doc(`users/${user.uid}`)
+          .update({ onboardingSeenAt: new Date() }),
+    );
+  });
+
+  test("anonymous callers are rejected", async () => {
+    await assert.rejects(
+      () => anonCaller()("markOnboardingSeen", {}),
+      /Sign in first/i,
+    );
+  });
+
+  test("a caller with no profile is refused rather than silently ignored", async () => {
+    const user = await newUser();
+    await assert.rejects(
+      () => user.call("markOnboardingSeen", {}),
+      /No profile document/i,
+    );
+  });
+});

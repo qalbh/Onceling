@@ -10,6 +10,8 @@ import '../features/feed/models/feed_item.dart';
 import '../features/feed/screens/feed_screen.dart';
 import '../features/pairing/pairing_celebration.dart';
 import '../features/pairing/screens/paired_screen.dart';
+import '../features/onboarding/screens/how_secrets_work_screen.dart';
+import '../features/onboarding/screens/onboarding_screen.dart';
 import '../features/pairing/screens/pairing_screen.dart';
 import '../features/secret/screens/secret_reveal_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
@@ -25,6 +27,8 @@ abstract final class AppRoutes {
   static const feed = '/feed';
   static const settings = '/settings';
   static const secretReveal = '/secret-reveal';
+  static const onboarding = '/onboarding';
+  static const howSecretsWork = '/how-secrets-work';
 }
 
 /// The auth gate, as a pure function — the only navigation decision in the app,
@@ -48,6 +52,7 @@ String? resolveRedirect({
   required String? coupleId,
   required String currentLocation,
   bool justPaired = false,
+  bool hasSeenOnboarding = true,
 }) {
   // The branch ORDER here is load-bearing, not stylistic.
   //
@@ -65,6 +70,17 @@ String? resolveRedirect({
     (true, _) => AppRoutes.splash,
     (false, false) => AppRoutes.signIn,
     (false, true) when isLoadingProfile || !profileExists => AppRoutes.splash,
+    // **P3-07 / PI-02**, and its position is the decision. Onboarding sits
+    // after the profile exists and BEFORE the coupleId branch, because it
+    // explains what the space is before anyone invites another person into it
+    // — and because PI-02 gates external testing, so a tester who paired on an
+    // older build must still meet the disclosure rather than skip it by having
+    // been early.
+    //
+    // Ahead of the pairing branch but behind the profile branch: a signed-in
+    // user with no document yet is still loading, and showing them onboarding
+    // would race the sign-up write.
+    (false, true) when !hasSeenOnboarding => AppRoutes.onboarding,
     (false, true) when coupleId == null => AppRoutes.pairing,
     // justPaired is only ever true when this session watched coupleId appear,
     // so a cold start on a paired account falls straight through to the feed.
@@ -79,9 +95,15 @@ String? resolveRedirect({
       AppRoutes.feed,
       AppRoutes.settings,
       AppRoutes.secretReveal,
+      AppRoutes.howSecretsWork,
     },
-    // Unpaired users keep settings too — sign-out lives there.
-    AppRoutes.pairing => const {AppRoutes.pairing, AppRoutes.settings},
+    // Unpaired users keep settings too — sign-out lives there, and so does
+    // the disclosure they can re-read at any time.
+    AppRoutes.pairing => const {
+      AppRoutes.pairing,
+      AppRoutes.settings,
+      AppRoutes.howSecretsWork,
+    },
     // The moment is a destination in its own right, not a layer over the feed.
     AppRoutes.paired => const {AppRoutes.paired},
     final w => {w},
@@ -115,6 +137,7 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       return resolveRedirect(
         justPaired: ref.read(pairingCelebrationProvider) != null,
+        hasSeenOnboarding: profile.valueOrNull?.hasSeenOnboarding ?? true,
         isLoadingAuth: auth.isLoading,
         isSignedIn: user != null,
         // currentUserProvider re-enters loading when auth flips; treat only
@@ -131,6 +154,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.pairing,
         builder: (_, _) => const PairingScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.onboarding,
+        builder: (_, _) => const OnboardingScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.howSecretsWork,
+        builder: (_, _) => const HowSecretsWorkScreen(),
       ),
       GoRoute(path: AppRoutes.paired, builder: (_, _) => const PairedScreen()),
       GoRoute(path: AppRoutes.feed, builder: (_, _) => const FeedScreen()),

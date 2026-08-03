@@ -47,8 +47,10 @@ Read this before editing. Applies to Claude Code and to me.
 - [ ] **Phase 3 — Cloud Functions, deletion, streaks, push, onboarding** ← current
 - [ ] **Phase 4 — Home widget, polish, store submission**
 
-> **Gate:** no external testers — TestFlight or Play internal — until **PI-02** ships.
-> Brief §10 requires the honesty disclosure before anyone outside uses the app.
+> **Gate lifted 2026-08-03.** **PI-02** has shipped: the §10 honesty disclosure is in
+> onboarding, unskippable, and revisitable from settings. External testing —
+> TestFlight or Play internal — is no longer blocked by it. **P4-06** and **P2-16**
+> (Blaze) still gate an actual deploy.
 
 ---
 
@@ -104,12 +106,44 @@ immediate — it decides whether trademark checks matter, not what gets built ne
 
 Flagged in review. Small, keeps getting deferred because none of it is code.
 
-- [ ] **PI-01** Resolve the "Screenshot alerts" toggle — it implies a detection
+- [x] **PI-01** Resolve the "Screenshot alerts" toggle — it implies a detection
       capability the product cannot deliver. Rename or remove. See brief §10.
-- [ ] **PI-02** Write the §10 honesty disclosure into onboarding. The brief requires
-      stating plainly that the one-time open is a trust ritual, not a guarantee.
-      It does not currently exist anywhere in the app. **Gates external testing.**
-- [ ] **PI-03** Decide whether "Mood nudges" stays — it is not in brief §6.
+      ***Removed, not renamed.*** *There is nothing to toggle. iOS can detect a
+      screenshot of your own app, so a partial version was buildable — and that is
+      exactly the trap: it would cover one of §10's three defeats on one of two
+      platforms, while the row's presence implies all three on both. Shipping it would
+      have contradicted the disclosure written in the same change.*
+- [x] **PI-02** Write the §10 honesty disclosure into onboarding. **Gates external
+      testing — that gate is now open.**
+      *Its own screen, half of a two-screen onboarding, not a bullet in a feature
+      list. `HonestyDisclosure` is one widget used in both places it appears, so the
+      onboarding copy and the settings copy cannot drift.*
+      *The copy states both halves, which is what makes it honest rather than
+      defensive: what IS true (opened once, the words deleted from the server, nobody
+      reads it twice — all of which **P3-01** made real) and what is not (a screenshot,
+      a screen recording, a second phone). The three defeats are named, not abstracted
+      into "technical limitations". It does not apologise: the limitation is a design
+      choice, and the closing line says the ritual is worth more for being a choice
+      than it would be as a guarantee.*
+      ***Not skippable, and revisitable forever.*** *A Skip button on the one screen
+      that exists to be read would defeat the requirement it satisfies. The
+      compensating choice is brevity — two screens, two taps, no dwell timer and no
+      confirmation checkbox, because those manufacture the appearance of consent
+      rather than the substance. Settings → "How secrets work" reopens it; a
+      disclosure nobody can find again is weaker than one they can.*
+      *Recorded server-side by `markOnboardingSeen`: set-once, server-stamped,
+      client-unwritable. §10 names overclaiming as a regulatory risk, and evidence the
+      client can author is weaker evidence. **What the record honestly proves** is that
+      the client called the endpoint, not that a human read the screen — inherent to
+      any disclosure, and stated here rather than overclaimed, which is the same
+      discipline §10 is asking for.*
+- [x] **PI-03** Decide whether "Mood nudges" stays — it is not in brief §6.
+      ***Cut.*** *A nudge is a mechanism for prompting your partner to post. Brief §12
+      already flags that streaks in a romantic context risk turning affection into
+      obligation, and **Q2** answered that by making streaks forgiving. Shipping a
+      feature whose entire purpose is to manufacture the obligation Q2 just softened
+      would be incoherent. Not in the brief, nothing implemented it, and the settings
+      row was the only thing that claimed it existed.*
 - [ ] **PI-04** Re-upload the updated brief to the Claude project.
 - [ ] **PI-05** A declined request must never tell the sender they were refused. It
       surfaces as 'expired' — the same status the 7-day timeout writes. The sender
@@ -810,7 +844,26 @@ there is data.
 - [ ] **P3-05** Rate limiting on any future secret-bearing check. *The pairing half
       moved forward to **P2-27** — it is a **P2-09** dependency, not later polish.*
 - [ ] **P3-06** Composite indexes; keep `firestore.indexes.json` in sync
-- [ ] **P3-07** Onboarding flow *(includes PI-02 — gates external testing)*
+- [x] **P3-07** Onboarding flow *(includes PI-02 — gates external testing)*
+      **Two screens: what the space is, then how secrets really work.**
+      *Three were drafted and the third cut. It explained that a code pairs you with
+      exactly one person — which is what the pairing screen itself says two taps
+      later, so it was padding in front of the flow brief §11 calls the single most
+      important metric. Two also makes the disclosure half of onboarding rather than
+      an item in a list, which is the requirement.*
+      *Position in the gate is the other decision: after the profile exists and
+      **before** the coupleId branch. It explains the space before anyone invites
+      another person into it, and because PI-02 gates external testing, a tester who
+      paired on an older build still meets it rather than skipping it by having been
+      early. Behind the profile branch, not ahead of it — a signed-in user with no
+      document yet is still loading, and showing onboarding there would race the
+      sign-up write.*
+      *No collision with **P2-26**: the pairing moment is reached only via the
+      coupleId branch, which onboarding sits ahead of, so the two can never both
+      want the screen.*
+      *Finishing records the flag and navigates nothing — the profile stream carries
+      `onboardingSeenAt` and the gate moves, exactly as the pairing moment works.
+      A failed write does not trap the reader; worst case they see it once more.*
 
 ---
 

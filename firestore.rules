@@ -20,14 +20,23 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    // The six client keys all present and typed; pairingCode is the seventh,
-    // written only by the ensurePairingCode callable (admin, bypasses rules) —
-    // hasOnly admits it so a later client profile edit is not rejected for
-    // carrying it, but nothing lets a client introduce or change it.
+    // The six client keys all present and typed. `pairingCode` and
+    // `onboardingSeenAt` are server-written (by `ensurePairingCode` and
+    // `markOnboardingSeen`, both admin, both bypassing rules) — hasOnly admits
+    // them so a later client profile edit is not rejected for carrying them
+    // along, and `fieldUnchanged` on the update rule is what stops a client
+    // introducing or changing either.
+    //
+    // **Admitting them is not optional here**, unlike the equivalent case on
+    // `items`: that validator runs on create only, so a server-written key it
+    // omits is harmless. This one runs on UPDATE too, so any key the server
+    // adds and this list omits would break every legitimate profile edit for
+    // every user who has the field.
     function isWellFormedProfile(data) {
       return data.keys().hasOnly([
                'displayName', 'avatarUrl', 'coupleId',
-               'favoriteEmojis', 'accentColor', 'createdAt', 'pairingCode'
+               'favoriteEmojis', 'accentColor', 'createdAt', 'pairingCode',
+               'onboardingSeenAt'
              ])
              && data.keys().hasAll([
                   'displayName', 'avatarUrl', 'coupleId',
@@ -45,7 +54,10 @@ service cloud.firestore {
              && (data.accentColor == null
                  || (data.accentColor is string
                      && data.accentColor.size() <= 16))
-             && data.createdAt is timestamp;
+             && data.createdAt is timestamp
+             && (!('onboardingSeenAt' in data)
+                 || data.onboardingSeenAt == null
+                 || data.onboardingSeenAt is timestamp);
     }
 
     // The caller's couple, read from their own profile.
@@ -251,7 +263,12 @@ service cloud.firestore {
                     // Like coupleId: server-owned in both directions. Carrying
                     // it along unchanged is fine; setting, changing or
                     // clearing it is not.
-                    && fieldUnchanged('pairingCode');
+                    && fieldUnchanged('pairingCode')
+                    // **PI-02.** The record that a required disclosure was
+                    // made. §10 calls overclaiming here a regulatory risk, and
+                    // evidence the client can author is weaker evidence — so
+                    // `markOnboardingSeen` stamps it and nothing else may.
+                    && fieldUnchanged('onboardingSeenAt');
 
       // Account deletion is a server-side cascade, never a client dropping its
       // own row and orphaning everything that points at it.

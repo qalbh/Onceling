@@ -257,3 +257,49 @@ describe("sanity", () => {
     assert.ok(testEnv, "test environment initialised, so the rules parsed");
   });
 });
+
+describe("PI-02 — onboardingSeenAt is server-owned", () => {
+  test("a client cannot set it", async () => {
+    await seedProfile(ALICE);
+    await assertFails(
+      updateDoc(doc(db(ALICE), "users", ALICE), {
+        onboardingSeenAt: new Date(),
+      }),
+    );
+  });
+
+  test("a client cannot clear or move it once the server has stamped it", async () => {
+    await seedProfile(ALICE);
+    await testEnv.withSecurityRulesDisabled((c) =>
+      updateDoc(doc(c.firestore(), "users", ALICE), {
+        onboardingSeenAt: new Date("2026-08-01T00:00:00Z"),
+      }),
+    );
+
+    await assertFails(
+      updateDoc(doc(db(ALICE), "users", ALICE), { onboardingSeenAt: null }),
+    );
+    await assertFails(
+      updateDoc(doc(db(ALICE), "users", ALICE), {
+        onboardingSeenAt: new Date("2026-09-01T00:00:00Z"),
+      }),
+    );
+  });
+
+  test("a stamped profile can still be edited — the field rides along", async () => {
+    // The half that would have broken silently. isWellFormedProfile runs on
+    // UPDATE, so a server-written key missing from hasOnly would reject every
+    // legitimate displayName edit for every user who has completed onboarding
+    // — which, once PI-02 ships, is everyone.
+    await seedProfile(ALICE);
+    await testEnv.withSecurityRulesDisabled((c) =>
+      updateDoc(doc(c.firestore(), "users", ALICE), {
+        onboardingSeenAt: new Date("2026-08-01T00:00:00Z"),
+      }),
+    );
+
+    await assertSucceeds(
+      updateDoc(doc(db(ALICE), "users", ALICE), { displayName: "Alice B" }),
+    );
+  });
+});

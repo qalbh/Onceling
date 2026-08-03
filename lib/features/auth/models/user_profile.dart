@@ -9,6 +9,7 @@ class UserProfile {
     this.accentColor,
     this.pairingCode,
     this.createdAt,
+    this.onboardingSeenAt,
   });
 
   final String uid;
@@ -32,7 +33,16 @@ class UserProfile {
   /// resolving — `serverTimestamp()` reads back as null in the pending snapshot.
   final DateTime? createdAt;
 
+  /// When the §10 honesty disclosure was shown (**PI-02**). Null means it has
+  /// not been. Written only by `markOnboardingSeen`, set-once and
+  /// server-stamped — the record that a required disclosure was made should
+  /// not be authorable by the client it was made to.
+  final DateTime? onboardingSeenAt;
+
   bool get isPaired => coupleId != null;
+
+  /// The gate's question: has this person met the disclosure yet?
+  bool get hasSeenOnboarding => onboardingSeenAt != null;
 
   factory UserProfile.fromFirestore(String uid, Map<String, dynamic> data) {
     return UserProfile(
@@ -50,6 +60,11 @@ class UserProfile {
       // Duck-typed for the same reason as the feed mapper: a pending write has
       // no Timestamp yet. See P2-22.
       createdAt: switch (data['createdAt']) {
+        null => null,
+        final DateTime value => value,
+        final Object value => (value as dynamic).toDate() as DateTime,
+      },
+      onboardingSeenAt: switch (data['onboardingSeenAt']) {
         null => null,
         final DateTime value => value,
         final Object value => (value as dynamic).toDate() as DateTime,

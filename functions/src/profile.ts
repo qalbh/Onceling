@@ -156,3 +156,45 @@ export const ensureUserProfile = onCall(async (request) => {
 
   return { created: true, coupleId, pairingCode: null, displayName };
 });
+
+/**
+ * **PI-02** — records that the §10 honesty disclosure was shown.
+ *
+ * **Server-written, not a client write to the profile.** The rules do permit a
+ * client to update its own `users/{uid}` for `displayName`, so this could have
+ * been a field-level write plus a rules change. It is a callable instead
+ * because of what this field *is*: the record that a required disclosure was
+ * made. Brief §10 calls overclaiming here a regulatory risk as well as a trust
+ * risk, and evidence the client can author is weaker evidence. The timestamp is
+ * the server's.
+ *
+ * Idempotent, and deliberately **set-once**: an existing value is returned
+ * untouched rather than refreshed, so the stamp keeps meaning "when they first
+ * saw it" rather than "when they last happened to open the app".
+ */
+export const markOnboardingSeen = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (uid == null) {
+    throw new HttpsError("unauthenticated", "Sign in first.");
+  }
+
+  const db = getFirestore();
+  const userRef = db.doc(`users/${uid}`);
+
+  return await db.runTransaction(async (t) => {
+    const snap = await t.get(userRef);
+    if (!snap.exists) {
+      throw new HttpsError("failed-precondition", "No profile document.", {
+        reason: "profile-missing",
+      });
+    }
+
+    const existing = snap.data()?.onboardingSeenAt;
+    if (existing != null) {
+      return { alreadySeen: true };
+    }
+
+    t.update(userRef, { onboardingSeenAt: FieldValue.serverTimestamp() });
+    return { alreadySeen: false };
+  });
+});

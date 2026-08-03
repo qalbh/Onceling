@@ -13,6 +13,13 @@ abstract interface class ProfileService {
   ///
   /// Idempotent: an existing document is returned untouched.
   Future<ProfileState> ensureProfile({String? displayName});
+
+  /// Records that the §10 disclosure was shown (**PI-02**).
+  ///
+  /// A callable rather than a client write, because this is the record that a
+  /// required disclosure was made and §10 names the regulatory risk. Set-once
+  /// and server-stamped, so it means "when they first saw it".
+  Future<void> markOnboardingSeen();
 }
 
 /// What the caller needs back from [ProfileService.ensureProfile].
@@ -44,5 +51,10 @@ class FirebaseFunctionsProfileService implements ProfileService {
       'displayName': ?displayName,
     });
     return ProfileState.fromCallable(result.data as Map<Object?, Object?>);
+  }
+
+  @override
+  Future<void> markOnboardingSeen() async {
+    await _functions.httpsCallable('markOnboardingSeen').call();
   }
 }

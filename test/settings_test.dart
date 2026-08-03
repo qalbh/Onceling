@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:couple_app/common/app_router.dart';
 import 'package:couple_app/features/auth/screens/sign_in_screen.dart';
 import 'package:couple_app/features/feed/screens/feed_screen.dart';
+import 'package:couple_app/features/onboarding/widgets/honesty_disclosure.dart';
 import 'package:couple_app/features/pairing/screens/pairing_screen.dart';
 import 'package:couple_app/features/settings/screens/settings_screen.dart';
 import 'package:couple_app/features/settings/widgets/unpair_sheet.dart';
@@ -90,17 +91,41 @@ void main() {
     expect(find.text('4 November 2023'), findsNothing);
   });
 
-  testWidgets('preference rows cycle through their values', (tester) async {
+  testWidgets('the secret-opened alert toggles', (tester) async {
+    // Rewritten at PI-01/PI-03. This used to cycle "Mood nudges", which is cut,
+    // and sat beside "Screenshot alerts", which is removed. What is left is the
+    // one alert the product can actually deliver.
     await pumpSettings(tester);
 
-    await revealRow(tester, 'Mood nudges');
-    expect(find.text('Quiet'), findsOneWidget);
+    await revealRow(tester, 'Tell me when a secret is opened');
+    expect(find.text('On'), findsOneWidget);
 
-    await tapRow(tester, 'Mood nudges');
-    expect(find.text('Loud'), findsOneWidget);
-
-    await tapRow(tester, 'Mood nudges');
+    await tapRow(tester, 'Tell me when a secret is opened');
     expect(find.text('Off'), findsOneWidget);
+  });
+
+  testWidgets('the removed toggles are gone and stay gone', (tester) async {
+    // PI-01: "Screenshot alerts" implied a detection capability the product
+    // does not have, and directly contradicted the §10 disclosure.
+    // PI-03: "Mood nudges" was not in brief §6 and is exactly the
+    // obligation-manufacturing mechanic §12 warns about.
+    await pumpSettings(tester);
+    await revealRow(tester, 'Tell me when a secret is opened');
+
+    expect(find.text('Screenshot alerts'), findsNothing);
+    expect(find.text('Mood nudges'), findsNothing);
+  });
+
+  testWidgets('the disclosure is reachable again from settings (PI-02)', (
+    tester,
+  ) async {
+    // A disclosure nobody can find a second time is weaker than one they can.
+    await pumpSettings(tester);
+
+    await tapRow(tester, 'How secrets work');
+
+    expect(find.text(HonestyDisclosure.title), findsOneWidget);
+    expect(find.text(HonestyDisclosure.whatIsNotTrue), findsOneWidget);
   });
 
   testWidgets('a favourite slot can be swapped', (tester) async {

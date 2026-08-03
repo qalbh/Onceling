@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../common/app_router.dart';
 import '../../../common/app_toast.dart';
 import '../../../common/providers.dart';
 import '../../../theme/app_theme.dart';
@@ -35,8 +36,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       defaultTrayEmoji;
 
   bool _secretAlerts = true;
-  bool _screenshotAlerts = true;
-  _NudgeLevel _nudges = _NudgeLevel.quiet;
 
   Future<void> _swapFavourite(int index) async {
     final picked = await ReactionTray.show(context, title: 'Pick a favourite');
@@ -109,21 +108,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: 26),
             SettingsCard(
               children: [
+                // The one alert that is real: P3-01 derives whether the reader
+                // held the full countdown and tells the sender. P3-04 carries
+                // it as push.
                 SettingsRow(
                   label: 'Tell me when a secret is opened',
                   value: _secretAlerts ? 'On' : 'Off',
                   onTap: () => setState(() => _secretAlerts = !_secretAlerts),
                 ),
+                // **PI-02** — the disclosure, findable again forever.
                 SettingsRow(
-                  label: 'Mood nudges',
-                  value: _nudges.label,
-                  onTap: () => setState(() => _nudges = _nudges.next),
-                ),
-                SettingsRow(
-                  label: 'Screenshot alerts',
-                  value: _screenshotAlerts ? 'On' : 'Off',
-                  onTap: () =>
-                      setState(() => _screenshotAlerts = !_screenshotAlerts),
+                  label: 'How secrets work',
+                  onTap: () => context.push(AppRoutes.howSecretsWork),
                 ),
               ],
             ),
@@ -261,17 +257,4 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
   }
-}
-
-enum _NudgeLevel {
-  quiet('Quiet'),
-  loud('Loud'),
-  off('Off');
-
-  const _NudgeLevel(this.label);
-
-  final String label;
-
-  _NudgeLevel get next =>
-      _NudgeLevel.values[(index + 1) % _NudgeLevel.values.length];
 }
