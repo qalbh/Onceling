@@ -399,7 +399,8 @@ export const respondToPairing = onCall(async (request) => {
   // devices evaluating their own midnights would show the same relationship as
   // 47 and 46.
   //
-  // Validated, never trusted: this feeds the day boundary P3-02 computes against,
+  // Validated, never trusted: this feeds the day boundary P3-02 computes
+  // against,
   // and `Intl` alone would accept a UTC offset like `+05:00`, which is the one
   // form Q3 rules out. An unrecognised or missing zone becomes null rather than
   // an error — see normaliseTimezone for why failing the accept would be the
@@ -541,7 +542,8 @@ export const respondToPairing = onCall(async (request) => {
     // WARNING: this sweep is load-bearing for correctness, not just cleanup.
     // Pulling these documents into the transaction's read set is what makes
     // concurrent accepts contend and abort the loser. Sabotage testing during
-    // P2-18 confirmed it: with the already-paired preconditions removed but this
+    // P2-18 confirmed it: with the already-paired preconditions removed but
+    // this
     // sweep intact, races 1 and 2 still passed. With the sweep also removed,
     // race 1 produced two couples at round 0.
     // Do not move this to a post-transaction cleanup for efficiency without

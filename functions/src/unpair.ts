@@ -218,7 +218,7 @@ export const sweepUnpairedCouple = onDocumentUpdated(
     const result = await sweepCouple(getFirestore(), coupleId);
     console.log(
       `[P2-36] swept couple ${coupleId}: ${result.items} item(s) and their ` +
-        `secret bodies deleted, couple document removed.`,
+        "secret bodies deleted, couple document removed.",
     );
   },
 );

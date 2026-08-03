@@ -520,10 +520,33 @@ there is data.
       attempt fails and the second succeeds.*
       *Write failures are surfaced too, though they are not reads: a send that silently
       does nothing is the worst available failure on a thread two people trust.*
-- [ ] **P2-16** Upgrade **dev** to Blaze; set a $5 budget alert.
-      *Needed to deploy Functions. The emulator runs them locally on Spark, so
-      build and test the P2-09 family (P2-09/09b/09c) first and upgrade only when you
-      deploy.*
+- [x] **P2-16** Upgrade **dev** to Blaze; set a $5 budget alert.
+      *Deployed 2026-08-04. Rules and indexes first, alone; then functions. All 13
+      functions live, both schedules registered and firing.*
+      ***Three things surfaced that only a real deploy can surface:***
+      *1. **The lint config had never run.** `firebase.json`'s predeploy hook runs
+      `npm run lint`, and the emulator does not execute predeploy hooks — so the
+      stock `firebase init` eslint config met the codebase for the first time here,
+      with 248 errors. 234 were two rules (`object-curly-spacing`, deprecated
+      `valid-jsdoc`) disagreeing with every file rather than finding a defect; those
+      were reconciled in `.eslintrc.js` with the reasoning recorded there. The
+      genuine ten — over-length lines, backtick strings with no interpolation, two
+      undocumented helpers — were fixed in source.*
+      *2. **`sweepUnpairedCouple` needs `--force`.** A retry policy requires explicit
+      acknowledgement that the function is idempotent. It is, by design (**P2-36**)
+      and by test. Confirmed nothing existed that `--force` could silently delete
+      before using it.*
+      *3. **The first 2nd-gen deploy raced its own Eventarc service agent** and the
+      Firestore trigger failed to create. Infrastructure propagation, not code; the
+      CLI says to retry and the retry worked.*
+      ***Region was wrong, and nothing would have told us.*** *`setGlobalOptions` set
+      `maxInstances` but no region, so callables took the `us-central1` default while
+      Firestore is in `asia-south1` — every call crossing a continent to read the
+      document it was called about, with only the Firestore trigger co-located. Now
+      pinned to `asia-south1` on both sides. The client half is the sharp bit:
+      `FirebaseFunctions.instance` and `instanceFor(region:)` are **different
+      objects**, so `main.dart`'s emulator wiring had to move to the same one — miss
+      that and a debug build keeps working while calling the real dev functions.*
 - [x] **P2-17** Unit tests for the mapper layer — round-trip every `FeedItem` subtype
       *21 tests: every subtype, null `mediaUrl`/`caption`, empty and multi-person
       reactions, until-closed duration, sealed vs opened, count > 1, unknown type
@@ -843,7 +866,29 @@ there is data.
 - [ ] **P3-04** FCM fan-out — secret payloads carry no body and no preview
 - [ ] **P3-05** Rate limiting on any future secret-bearing check. *The pairing half
       moved forward to **P2-27** — it is a **P2-09** dependency, not later polish.*
-- [ ] **P3-06** Composite indexes; keep `firestore.indexes.json` in sync
+- [x] **P3-06** Composite indexes; keep `firestore.indexes.json` in sync
+      ***A required index was missing, and it would have failed in production on
+      every run.*** *`postsByDay` in **P3-02**'s streak tick queries `items` with
+      equality on `coupleId` plus a RANGE on `createdAt` and no explicit `orderBy`.
+      Firestore then sorts ASCENDING — and composite index directions are not
+      interchangeable, so the `coupleId + createdAt DESC` index the feed uses does
+      not serve it. The emulator does not enforce indexes, so this query had never
+      once run anywhere that could tell us. Added by hand to
+      `firestore.indexes.json` rather than via the console link, since a
+      console-created index does not exist in prod. Build time ~5 minutes on a
+      near-empty collection. A comment at the query now names the index and why it
+      differs from the feed's.*
+      *Every other query verified against real dev and needed no new index: the feed
+      listener and its pagination, incoming requests, the outgoing request, the
+      pairing duplicate-check, `memberIds` array-contains, **P3-01**'s
+      `secretState == 'opening'` sweep, and both of **P2-36**'s sweep queries.*
+      ***`memberIds` array-contains: the P2-35 claim was correct.*** *It is served by
+      the automatic single-field index; it ran inside `ensureUserProfile` against
+      real Firestore for every new account in this pass and never asked for one.*
+      *The streak tick's couple scan needs no index at all — an unfiltered
+      `collection("couples").limit(200)` read, so there is nothing to declare.*
+      *6 composite indexes declared before this pass, 7 after; declared and deployed
+      sets match exactly.*
 - [x] **P3-07** Onboarding flow *(includes PI-02 — gates external testing)*
       **Two screens: what the space is, then how secrets really work.**
       *Three were drafted and the third cut. It explained that a code pairs you with
@@ -903,9 +948,14 @@ Non-blocking. Fix when convenient.
 - [ ] **D-09** `rules-tests/` carries its own Node toolchain (86 packages).
       `@firebase/rules-unit-testing` peer-requires `firebase@^11`, not 12. Working,
       but the mismatch will surface on upgrade.
-- [ ] **D-10** The `fromUid`+`toUid`+`status` composite index for the duplicate-check
+- [x] **D-10** The `fromUid`+`toUid`+`status` composite index for the duplicate-check
       query is declared in `firestore.indexes.json` but untested — the emulator does
       not enforce indexes. Verify against dev before **P2-16**.
+      *Closed at **P2-16**/**P3-06**. The duplicate-check index works — it ran inside
+      `requestPairing` against real dev. **But the warning was right about a
+      different query**: the streak tick needed a `coupleId + createdAt ASC` index
+      that was not in the file and would have failed on every scheduled run. D-10 was
+      opened about one query and caught a second nobody was looking at.*
 - [ ] **D-11** The accept transaction's correctness rests partly on incidental
       mechanisms. Sabotage testing at **P2-18** showed the stale-request sweep's
       `transaction.get(query)` provides the contention that aborts concurrent
@@ -934,6 +984,12 @@ Non-blocking. Fix when convenient.
       was running — the run started moments after a `pairing.ts` edit, and a functions
       reload mid-suite could plausibly disturb the emulator connection. Untested. If
       it recurs, note whether a rebuild was in flight before blaming the emulator.*
+      ***Three for three now.*** *Occurrences at **P3-01**, **P2-40** and **P2-16**,
+      every one on the FIRST suite run after a functions source edit, every one the
+      same test and the same `clearFirestore` CANCELLED, every one clean on re-run.
+      That is no longer a coincidence — it is a reproducible precondition. Next step
+      is to stop the watcher, run the suite, and see whether it survives; if it does,
+      the fix is a settle-wait in `run-suite.mjs` before the first test.*
       *Second occurrence at **P3-01**, and it corroborates the hypothesis: same test,
       same `clearFirestore` CANCELLED, and again on the FIRST run after a functions
       source edit (`secret.ts` was new, so build:watch had just recompiled). Two for
@@ -956,6 +1012,17 @@ Non-blocking. Fix when convenient.
       collection every hour. The fix when it matters is a `streakDueAt` timestamp
       written at evaluation time and queried with a range, which makes the due set
       indexable.
+- [ ] **D-21** `firebase.json`'s predeploy hook is the only thing that runs eslint,
+      and the emulator never runs predeploy hooks — so lint errors accumulate
+      invisibly until a deploy, which is where they are most expensive to discover
+      (**P2-16** hit 248). Nothing in the four-suite loop catches them. Add
+      `npm --prefix functions run lint` to whatever CI lands, or accept that every
+      deploy starts with a lint fix.
+- [ ] **D-22** Two throwaway couples and roughly ten `verify-*@onceling.test` accounts
+      are left on the dev project from **P2-16**'s verification pass, plus their
+      items. Harmless on a test project and not worth admin credentials to remove,
+      but dev is no longer a clean slate — anything that counts documents there
+      should know. The verification scripts themselves were deleted.
 - [ ] **D-15** Feed pagination is one growing `limit`, so page N re-delivers the whole
       window: N pages cost 30+60+90+… document reads, quadratic in pages. Chosen at
       **P2-12** so every page stays live and a reaction on an old message updates in

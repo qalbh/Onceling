@@ -123,7 +123,8 @@ export function replayStreak(
   for (const day of days) {
     const posters = postedOn(day);
     // Brief §6: BOTH partners. One person posting alone does not extend it.
-    const bothPosted = members.length >= 2 && members.every((m) => posters.has(m));
+    const bothPosted =
+      members.length >= 2 && members.every((m) => posters.has(m));
 
     if (bothPosted) {
       next = {
@@ -172,6 +173,17 @@ async function postsByDay(
   const from = new Date(`${shiftKey(firstDay, -1)}T00:00:00Z`);
   const to = new Date(`${shiftKey(lastDay, 2)}T00:00:00Z`);
 
+  // INDEX: items — coupleId ASC + createdAt **ASC**.
+  //
+  // Not the same index the feed uses. The feed asks for `createdAt DESC`; this
+  // is a range with no explicit orderBy, so Firestore sorts ASCENDING, and
+  // composite index directions are not interchangeable. Declared separately in
+  // `firestore.indexes.json` for exactly that reason.
+  //
+  // Found at **P2-16**, the first real deploy: the emulator does not enforce
+  // indexes, so this query had never once run somewhere that could tell it the
+  // index was missing. It would have failed on every scheduled tick in
+  // production. That is what **D-10** was warning about.
   const snap = await db
     .collection("items")
     .where("coupleId", "==", coupleId)
@@ -207,6 +219,12 @@ function dayRange(from: string, to: string, max: number): string[] {
   return days;
 }
 
+/**
+ * Reads the stored streak, defaulting every field.
+ *
+ * @param {FirebaseFirestore.DocumentData} data the couple document
+ * @return {StreakState} the state, with absent fields at their zero value
+ */
 function readState(data: FirebaseFirestore.DocumentData): StreakState {
   return {
     streakCount: (data.streakCount as number | undefined) ?? 0,
@@ -218,7 +236,7 @@ function readState(data: FirebaseFirestore.DocumentData): StreakState {
   };
 }
 
-/** The couple's first meaningful day: their anniversary, else their creation. */
+/** The couple's first meaningful day: anniversary, else their creation. */
 function firstDayOf(
   data: FirebaseFirestore.DocumentData,
   timezone: string,
@@ -274,7 +292,13 @@ export async function evaluateStreakForCouple(
   const days = dayRange(from, yesterday, MAX_DAYS_PER_RUN);
   if (days.length === 0) return { evaluated: 0, state };
 
-  const byDay = await postsByDay(db, coupleId, timezone, days[0], days[days.length - 1]);
+  const byDay = await postsByDay(
+    db,
+    coupleId,
+    timezone,
+    days[0],
+    days[days.length - 1],
+  );
   const next = replayStreak(
     state,
     days,
@@ -318,7 +342,13 @@ export async function recalculateStreak(
     return emptyStreak;
   }
 
-  const byDay = await postsByDay(db, coupleId, timezone, days[0], days[days.length - 1]);
+  const byDay = await postsByDay(
+    db,
+    coupleId,
+    timezone,
+    days[0],
+    days[days.length - 1],
+  );
   const next = replayStreak(
     emptyStreak,
     days,

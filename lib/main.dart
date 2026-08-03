@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'common/app_router.dart';
+import 'common/providers.dart';
 import 'firebase_options_dev.dart';
 import 'theme/app_theme.dart';
 
@@ -38,7 +39,14 @@ void _connectToEmulators() {
   const host = 'localhost';
   FirebaseAuth.instance.useAuthEmulator(host, 9099);
   FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
-  FirebaseFunctions.instance.useFunctionsEmulator(host, 5001);
+  // **The region must match `functionsProvider`**, not the default instance.
+  // `FirebaseFunctions.instance` and `instanceFor(region: …)` are different
+  // objects, so wiring the emulator on the wrong one fails silently in the
+  // worst possible direction: a debug build would keep working while calling
+  // the REAL dev functions. Pinned to one constant so they cannot drift.
+  FirebaseFunctions.instanceFor(
+    region: functionsRegion,
+  ).useFunctionsEmulator(host, 5001);
 }
 
 class OncelingApp extends ConsumerWidget {

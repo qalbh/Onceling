@@ -97,7 +97,7 @@ export const ensureUserProfile = onCall(async (request) => {
     console.error(
       `[P2-35] ${uid} is a member of ${couples.size} couples: ` +
         `${couples.docs.map((d) => d.id).join(", ")}. ` +
-        `Refusing to recreate their profile — this needs a human.`,
+        "Refusing to recreate their profile — this needs a human.",
     );
     throw new HttpsError(
       "failed-precondition",

@@ -43,9 +43,18 @@ final authStateProvider = StreamProvider<User?>(
   (ref) => ref.watch(firebaseAuthProvider).authStateChanges(),
 );
 
+/// The region the callables are deployed to.
+///
+/// **Must match `setGlobalOptions` in `functions/src/index.ts`**, and both must
+/// match the Firestore location in `firebase.json`. A mismatch does not fail
+/// loudly: `FirebaseFunctions.instance` defaults to `us-central1`, so the app
+/// would keep working while every call crossed a continent to reach a database
+/// in `asia-south1`. Found on the first real deploy (**P2-16**).
+const functionsRegion = 'asia-south1';
+
 /// The Cloud Functions handle, already emulator-wired by `main()` in debug.
 final functionsProvider = Provider<FirebaseFunctions>(
-  (ref) => FirebaseFunctions.instance,
+  (ref) => FirebaseFunctions.instanceFor(region: functionsRegion),
 );
 
 /// Client edge of the pairing callables.

@@ -13,6 +13,13 @@ export const MAX_MOOD_NOTE = 200;
  *  `emoji`, which is enough for a multi-codepoint sequence. */
 export const MAX_MOOD_EMOJI = 16;
 
+/**
+ * Trims and length-checks an untrusted string.
+ *
+ * @param {unknown} value the caller-supplied value
+ * @param {number} max longest accepted length, after trimming
+ * @return {string | null} the trimmed value, or null if unusable
+ */
 function bounded(value: unknown, max: number): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
