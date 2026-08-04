@@ -9,7 +9,7 @@ with one, say so instead of silently working around it.
 
 ## Definition of done
 
-A change is not complete until all six hold:
+A change is not complete until all seven hold:
 
 1. `flutter analyze` is clean
 2. `flutter test` passes, **and the test count is stated with its delta.** A green
@@ -23,6 +23,9 @@ A change is not complete until all six hold:
 6. `npm run lint` passes in `functions/` — eslint only runs as a deploy predeploy
    hook, which the emulator never invokes. 248 errors accumulated undetected before
    the first real deploy (**D-21**). Run it with the other suites, not at deploy time.
+7. `flutter build apk --debug` succeeds. None of the other suites parse Android XML or
+   Gradle config, so a change under `android/` can pass all six checks while the build
+   is broken. This has happened twice.
 
 ---
 
