@@ -38,37 +38,86 @@ something going wrong, and the reasoning is what stops it being undone.
 ## Reaching the suite from a real device
 
 Simulators and the AVD share the host's network stack and need nothing. A physical
-phone does not, and getting it there has two routes.
+phone does not. Two routes work; **`adb reverse` is the better one.**
 
-**Prefer `adb reverse`.** For a USB-connected Android device — which you need anyway
-to install a debug build:
+**Preferred — `adb reverse`.** For a USB-connected device, which you need anyway to
+install a debug build:
 
-    adb reverse tcp:8080 tcp:8080
-    adb reverse tcp:9099 tcp:9099
-    adb reverse tcp:5001 tcp:5001
-    flutter run -d <device-id>
+    adb -s <device-id> reverse tcp:8080 tcp:8080
+    adb -s <device-id> reverse tcp:9099 tcp:9099
+    adb -s <device-id> reverse tcp:5001 tcp:5001
+    flutter run -d <device-id> --dart-define=EMULATOR_HOST=localhost
 
-The phone then reaches the suite on its own `127.0.0.1`, so no flag, no LAN, and no
-`0.0.0.0` binding. The tunnels do not survive an unplug — re-run after reconnecting.
+The phone reaches the suite on its own loopback: no LAN, no `0.0.0.0` binding, nothing
+that breaks when the network changes. The tunnels do not survive an unplug — re-run
+them after reconnecting. Verified on the SM-A325F.
 
-**The LAN route** is the fallback for wifi-`adb` or a device you cannot tunnel from.
-**Three things are required, and each fails differently — the symptom tells you which
-one is missing:**
+> **The gotcha that makes this look broken: the plugins rewrite the host.**
+> `useAuthEmulator`, `useFirestoreEmulator` and `useFunctionsEmulator` all default
+> `automaticHostMapping: true`, which on Android silently turns `localhost` and
+> `127.0.0.1` into `10.0.2.2`. That is a convenience for the AVD and a trap on a
+> handset, where `10.0.2.2` is not the host but nothing at all — so the tunnel is
+> never used and sign-in dies with `network-request-failed`, or with
+> `Failed to connect to /10.0.2.2:9099` if you are lucky enough to get the address in
+> the message. **`main.dart` passes `automaticHostMapping: false` on all three**, since
+> `EmulatorHost` already resolved the host deliberately. If loopback ever stops
+> working from a handset, check that first: the plugin announces itself in the device
+> log with `Mapping Firestore Emulator host "localhost" to "10.0.2.2"`.
 
-1. `--dart-define=EMULATOR_HOST=<Mac LAN IP>` (`ipconfig getifaddr en0`). Without it
-   the app resolves `10.0.2.2`, which on a real device is not the host but nothing at
-   all. *Symptom: everything hangs, then times out. No error names a host.* Confirm
-   with the startup log line — `[emulator] host=… explicit=true`.
-2. **Both devices on the same network.** *Symptom: identical to (1).* These two are
-   indistinguishable from the app, so check the flag first — it is the cheaper one to
-   rule out. Phones drop to cellular silently; a hotspot moves the host's IP.
+**Fallback — the LAN**, for wifi-`adb` or a device you cannot tunnel from. It needs
+three things, and each fails differently — the symptom tells you which one is missing:
+
+1. `--dart-define=EMULATOR_HOST=<Mac LAN IP>` (`ipconfig getifaddr en0`). *Symptom if
+   missing: the app starts, logs a `WARNING:` naming this, falls back to `localhost`,
+   and then behaves like (2) unless the tunnels happen to be up.* Confirm with
+   `[backend] emulator at … explicit=true`.
+2. **Both devices on the same network.** *Symptom: the app starts fine and then hangs
+   — sign-in times out after about ten seconds with
+   `[firebase_auth/network-request-failed]`.* Nothing names the host, because from the
+   app's side an unreachable address and a wrong one look the same. Phones drop to
+   cellular silently; a hotspot moves the host's IP, so re-check
+   `ipconfig getifaddr en0` after any network change rather than trusting the IP that
+   worked yesterday.
 3. **The emulators bound to `0.0.0.0` in `firebase.json`** (see **D-25**). The default
    `127.0.0.1` accepts only host-local connections, so the packet arrives and is
    refused. *Symptom: fast and specific — connection refused, immediately, naming the
-   IP and port.* An instant failure means this one; a hang means (1) or (2).
+   IP and port.*
+
+**A hang means (2); an instant connection-refused means (3); a `WARNING:` in the
+startup log means (1).** Check the log before theorising — it distinguishes the first
+case for free.
 
 The LAN IP changes with the network. Do not commit it anywhere — `emulator_host.dart`
 has a test asserting no private address is baked into the source.
+
+**A physical device never resolves `10.0.2.2`.** That address is the *Android
+emulator's* alias for the host loopback and means nothing on a handset.
+`EmulatorHost` asks the platform whether it is real hardware (`device_info_plus`,
+because the discriminating signal is the `ro.kernel.qemu` system property and no
+file-existence check can see it) and falls back to `localhost`, which is correct under
+`adb reverse`, with a `WARNING:` naming every way out. That fallback is only correct
+because the plugin host rewriting is disabled — see the note above.
+
+## Testing against the dev project
+
+    flutter run -d <device-id> --dart-define=USE_EMULATOR=false
+
+Skips `_connectToEmulators()` entirely, so the build talks to **real Firebase** on
+`qalb-coupleapp-dev`. Needed for anything with no emulator behind it:
+
+- **Push (P3-04).** There is no FCM emulator. `notifyOnItem` and the pairing triggers
+  are deployed to dev, so a notification can only be observed this way.
+- Index-dependent queries, which the Firestore emulator does not enforce (**P3-06**).
+
+Real data, real quota, and none of the seeded accounts — `maya@onceling.test` and the
+rest exist only in the emulator, which is the quickest way to confirm which backend
+you are on. The startup line names it outright:
+
+    [backend] REAL FIREBASE — dev project, no emulator (--dart-define=USE_EMULATOR=false)
+
+The emulator is still the development environment (CLAUDE.md). This flag is for a
+specific verification, not a way of working — and it is deliberately opt-*out* so a
+forgotten flag can only ever send you to the emulator, never to real users' data.
 
 Android also blocks cleartext HTTP by default, and the suite speaks plain HTTP.
 `android/app/src/debug/res/xml/network_security_config.xml` permits it for **debug

@@ -1,6 +1,6 @@
 # Onceling — Status
 
-**Phase 3 of 4 · Last updated: 2026-08-04**
+**Phase 3 of 4 · Last updated: 2026-08-05**
 
 **Now:** P3-03 — milestone triggers (day 100, 365, 500, 1000)
 
@@ -646,11 +646,65 @@ there is data.
       is possible but needs a Gradle task ordered against `mergeDebugResources` and
       breaks on every run that omits the define, which is every simulator run. Now a
       `<base-config>`: **the boundary that matters is the build type, not the host
-      list.** `adb reverse` remains the recommended route for a USB device and needs
-      none of this. `android_network_config_test.dart` guards the release side.*
-      *Verified three ways against the local suite, same code: AVD with
-      `host=10.0.2.2`, iOS simulator with `host=localhost`, and a physical SM-A325F
-      with `host=172.20.10.3 explicit=true`.*
+      list.** `android_network_config_test.dart` guards the release side.*
+      ***The platform branch was the wrong question, and that was the deeper bug.***
+      *It distinguished iOS from Android, not an emulator from a handset — so a real
+      Samsung with no flag resolved `10.0.2.2`, which off the emulator is not a wrong
+      host but a meaningless one, and surfaced as a network error reading as the app's
+      fault. **There is no zero-dependency way to tell them apart:** the signal is the
+      `ro.kernel.qemu` system property (`1` on the AVD, `0` on the SM-A325F, checked on
+      both), and the `/dev/goldfish_pipe`-style markers are not visible from the app
+      sandbox — file sniffing cannot answer it. Hence `device_info_plus` and its
+      `isPhysicalDevice`, which asks the platform rather than guessing.*
+      ***Chosen: a physical device falls back to `localhost` and warns loudly.***
+      *`localhost` is correct under `adb reverse`, so refusing would break a working
+      route. The warning names every way out — `adb reverse`, `EMULATOR_HOST`,
+      `USE_EMULATOR=false` — because a warning that does not say what to do instead is
+      noise. A test asserts all three are in it.*
+      ***`automaticHostMapping: false` is the load-bearing part, and finding it cost a
+      wrong theory first.*** *All three of `useAuthEmulator` / `useFirestoreEmulator` /
+      `useFunctionsEmulator` default that flag TRUE, which on Android silently rewrites
+      `localhost` and `127.0.0.1` to `10.0.2.2` — a convenience for the AVD, and on a
+      handset a rewrite to an address that does not exist. So every loopback attempt
+      failed, and the failure had nothing to do with loopback.*
+      *I diagnosed that as "`adb reverse` cannot carry the native Firebase SDKs" and
+      wrote it into the docs, this file and the `network_security_config.xml` comment,
+      reasoning from a Dart `HttpClient` reaching the tunnel while Firebase did not.
+      **The evidence was real and the explanation was invented.** What settled it was
+      the device log naming the address it actually dialled —
+      `Failed to connect to /10.0.2.2:9099` from a build told `localhost` — and the
+      plugin announcing the rewrite in plain text one line earlier:
+      `Mapping Firestore Emulator host "localhost" to "10.0.2.2"`. It had been printing
+      that the whole time, into a log I was grepping for `[backend]` and error strings
+      only. **Two lessons: read the log around the failure, not the lines you predicted
+      would matter; and a mechanism that merely fits the evidence is a hypothesis, not
+      a finding.** With the flag off, `adb reverse` + `EMULATOR_HOST=localhost` signs in
+      on the SM-A325F. All three surfaces are corrected.*
+      *The decision is a pure function (`hostFor`) taking both facts as arguments.
+      `flutter test` runs on the host VM where `Platform.isAndroid` is false and no
+      device exists, so the Android branches were untestable until this split; the
+      physical-Android case — the actual bug — now has a test.*
+      *Verified on the SM-A325F, same code: `adb reverse` + `EMULATOR_HOST=localhost`
+      signs in, and so does the LAN route at `192.168.100.135 explicit=true`.
+      **Not re-verified after the `automaticHostMapping` fix: the AVD and the iOS
+      simulator.** Both were green before it and the flag only removes a rewrite that
+      never applied to them — the AVD asks for `10.0.2.2` outright and the mapping is
+      Android-only — but neither has been run since, so neither is claimed.*
+- [x] **P2-41** `--dart-define=USE_EMULATOR=false` — an opt-out that skips
+      `_connectToEmulators()` so a debug build talks to the dev project.
+      *Required by anything with no emulator behind it. **Push (P3-04) is the standing
+      case:** there is no FCM emulator and the triggers are deployed to dev, so a
+      notification cannot be observed any other way — see **D-24**, where delivery has
+      never been seen on any device. Also covers index-dependent queries (**P3-06**),
+      which the Firestore emulator does not enforce.*
+      *Deliberately opt-**out**, not opt-in: the default is the emulator, so a
+      forgotten flag can only ever send you somewhere harmless. The reverse default
+      would mean one absent-minded run against real users' data.*
+      ***The startup line now names the backend, not just the host.*** *`host=10.0.2.2`
+      never said whether that was an emulator or the dev project, and talking to the
+      wrong one while everything looks fine is the entire failure class here. Reads
+      either `[backend] emulator at <host> (auth 9099, firestore 8080, functions 5001)`
+      or `[backend] REAL FIREBASE — dev project, no emulator`.*
 
 - [ ] **P2-22** Replace the duck-typed `toDate()` in `feed_item_mapper.dart` with a
       real `Timestamp` cast now that `cloud_firestore` has landed. Update mapper tests.
@@ -1162,8 +1216,9 @@ Non-blocking. Fix when convenient.
       **not on shared or public wifi** — a café, an office, a conference.
       **To revert:** delete the four `"host": "0.0.0.0"` lines in `firebase.json`;
       the default rebinds to loopback. Simulators and the AVD are unaffected either
-      way, and a USB device does not need it — `adb reverse` tunnels to the phone's
-      own loopback (see `docs/local-run.md`). So the revert is free whenever USB is
+      way — they reach the host without it. A USB device does not need it either:
+      `adb reverse` tunnels to the phone's own loopback, which works once
+      `automaticHostMapping` is off (**P2-21**). So the revert is free whenever USB is
       available, and should be the default posture off a trusted network.
 - [ ] **D-15** Feed pagination is one growing `limit`, so page N re-delivers the whole
       window: N pages cost 30+60+90+… document reads, quadratic in pages. Chosen at

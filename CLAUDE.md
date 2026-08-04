@@ -196,6 +196,15 @@ on a device — **`docs/local-run.md`**. Read it before any device walkthrough, 
 before trusting anything you saw on a simulator. Every rule in it was earned by a
 device verification that silently reported the wrong thing.
 
+- **Never boot or install on a simulator unless asked.** Do not open iOS simulators or
+  Android emulators on your own initiative, and do not reinstall on one the owner has
+  quit. If a task needs device verification, ask which target to use and wait.
+- **Physical devices are the default.** Two Android handsets: Samsung SM-A325F
+  (`RF8R41DV1JJ`) and Vivo V2339 (`10FE6403E00000Z`). If neither is attached, say the
+  verification could not be done rather than falling back to a simulator.
+- **Every `adb` command must use `-s <device-id>`.** Multiple targets are usually
+  attached, and an unqualified command either errors or hits the wrong one.
+
 ## Agent skills
 
 `.claude/skills/` and `.agents/skills/` hold Firebase-authored skills installed by

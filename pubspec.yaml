@@ -44,6 +44,7 @@ dependencies:
   flutter_timezone: ^5.1.0
   google_sign_in: ^7.2.0
   firebase_messaging: ^16.5.0
+  device_info_plus: ^13.2.0
 
 dev_dependencies:
   flutter_test:
