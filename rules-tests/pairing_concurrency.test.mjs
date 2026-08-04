@@ -36,6 +36,11 @@ import { assertPairingInvariant as checkPairingInvariant } from "./pairing_invar
 
 const PROJECT = "qalb-coupleapp-dev";
 
+/** Must match `setGlobalOptions({ region })` — see the note in
+ * `pairing_functions.test.mjs`. A region mismatch reads as `functions/not-found`,
+ * which here would look like the concurrency guard failing to exist. */
+const REGION = "asia-south1";
+
 /** Loop count for every race. Fewer than this and a race hides. */
 const ROUNDS = 20;
 
@@ -80,7 +85,7 @@ async function newUser() {
     `${randomUUID()}@onceling.test`,
     "hunter22",
   );
-  const functions = getFunctions(app);
+  const functions = getFunctions(app, REGION);
   connectFunctionsEmulator(functions, "127.0.0.1", 5001);
   return {
     uid: cred.user.uid,

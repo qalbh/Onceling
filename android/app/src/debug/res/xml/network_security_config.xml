@@ -4,23 +4,56 @@
 
   Android has blocked cleartext HTTP by default since API 28, and the Local
   Emulator Suite speaks plain HTTP. Without this the platform branch is correct
-  — the app resolves 10.0.2.2 — and the connection is refused anyway, with an
-  error that names cleartext rather than the host, which is a confusing thing
-  to debug from a sign-in failure.
+  — the app resolves the right host — and the connection is refused anyway,
+  with an error naming cleartext rather than the host, which is a confusing
+  thing to reach from a failed sign-in.
 
-  This file lives under src/debug/, so it is merged into debug builds only.
-  Release builds keep Android's default and cannot talk cleartext to anything.
+  This file lives under src/debug/, so it is merged into debug builds ONLY.
+  Release builds inherit Android's default and cannot talk cleartext to
+  anything. `android_network_config_test.dart` fails if that stops being true.
 
-  Scoped to the two loopback aliases rather than permitting cleartext
-  everywhere: 10.0.2.2 is the Android emulator's route to the host, 127.0.0.1
-  and localhost cover a device port-forwarded with `adb reverse`. A real phone
-  on the LAN reaching the machine's own IP is deliberately NOT covered — see
-  EmulatorHost, and prefer `adb reverse tcp:8080 tcp:8080` to widening this.
+  ===========================================================================
+  WHY base-config RATHER THAN A LIST OF HOSTS
+
+  This started as three <domain> entries — 10.0.2.2, 127.0.0.1, localhost —
+  which covers the Android emulator and loopback but NOT a real device, which
+  reaches the host on a LAN address like 172.20.10.3. `EMULATOR_HOST` exists
+  precisely to name such an address, so the narrow config contradicted the very
+  flag it was meant to support. Found on a physical SM-A325F:
+
+      [emulator] host=172.20.10.3 explicit=true
+      E/RecaptchaCallWrapper: Cleartext HTTP traffic to 172.20.10.3 not permitted
+
+  Listing the private ranges instead is NOT POSSIBLE. <domain> matches
+  HOSTNAMES — exactly, or with subdomains. There is no CIDR or wildcard form,
+  so "192.168.0.0/16" would be parsed as a literal hostname and match nothing.
+  It would look like a fix and silently keep failing, which is worse than the
+  bug.
+
+  Generating the entry at build time from the dart-define was the other
+  candidate. Gradle can read `-Pdart-defines` (base64 CSV), so it is genuinely
+  possible — but it needs a task ordered against mergeDebugResources, and it
+  yields an empty or invalid config on every run that omits the define, which
+  is every simulator and emulator run. That is a lot of fragile machinery
+  guarding a debug-only affordance.
+
+  So: permit cleartext generally and let src/debug/ be the boundary. The scope
+  that matters here is the BUILD TYPE, not the host list.
+
+  ===========================================================================
+  PREFER `adb reverse` TO RELYING ON THIS
+
+  For a USB-connected device — which you need anyway to install a debug build:
+
+      adb reverse tcp:8080 tcp:8080
+      adb reverse tcp:9099 tcp:9099
+      adb reverse tcp:5001 tcp:5001
+
+  The device then reaches the suite on 127.0.0.1 with no EMULATOR_HOST, no
+  0.0.0.0 binding in firebase.json (see D-25), and no dependence on both
+  machines sharing a network. This file is the fallback for when that is not
+  available, not the recommended route.
 -->
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">10.0.2.2</domain>
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

@@ -1,6 +1,6 @@
 # Onceling — Status
 
-**Phase 3 of 4 · Last updated: 2026-08-03**
+**Phase 3 of 4 · Last updated: 2026-08-04**
 
 **Now:** P3-03 — milestone triggers (day 100, 365, 500, 1000)
 
@@ -547,6 +547,18 @@ there is data.
       `FirebaseFunctions.instance` and `instanceFor(region:)` are **different
       objects**, so `main.dart`'s emulator wiring had to move to the same one — miss
       that and a debug build keeps working while calling the real dev functions.*
+      ***The pin missed a third client, and the suite hid it for two commits.***
+      *`rules-tests` builds its own callable handles, and `getFunctions(app)` there
+      still defaulted to `us-central1`. The Functions emulator resolves callables per
+      region and answers 404 for the wrong one, which the SDK surfaces as
+      `functions/not-found` — indistinguishable from a function nobody wrote. It went
+      unnoticed because **the running emulator kept serving the old region until it
+      was restarted**: the suite stayed green against a process that predated the pin,
+      and only broke when a restart made it honest. 92 of 139 failed the moment it
+      did. Fixed by naming `REGION` in both test files. The lesson is not about
+      regions — it is that **a long-lived emulator is stale state, and a green suite
+      is evidence about the process you ran against, not about the code.** Restart the
+      suite before trusting a run that follows a functions config change.*
 - [x] **P2-17** Unit tests for the mapper layer — round-trip every `FeedItem` subtype
       *21 tests: every subtype, null `mediaUrl`/`caption`, empty and multi-person
       reactions, until-closed duration, sealed vs opened, count > 1, unknown type
@@ -621,11 +633,24 @@ there is data.
       API 28 and the emulator speaks plain HTTP. The error names cleartext, not the
       host, which is a confusing thing to reach from a failed sign-in. Fixed with a
       `network_security_config.xml` under `src/debug/` — merged into debug builds
-      only, so release keeps Android's default — scoped to `10.0.2.2`, `127.0.0.1`
-      and `localhost` rather than permitting cleartext everywhere. A real phone should
-      use `adb reverse tcp:8080 tcp:8080` rather than widening it.*
-      *Verified both ways: AVD signs in against the local suite with
-      `host=10.0.2.2`, iOS simulator with `host=localhost`, same code.*
+      only, so release keeps Android's default.*
+      ***That config was first scoped to `10.0.2.2`, `127.0.0.1` and `localhost`,
+      which was wrong and is now corrected.*** *It contradicted the very flag it was
+      meant to support: `EMULATOR_HOST` exists to name a LAN address, and a LAN
+      address was exactly what the list excluded. A physical SM-A325F resolved the
+      host correctly and was refused anyway —* `Cleartext HTTP traffic to
+      172.20.10.3 not permitted`. *Listing the private ranges instead is not
+      possible: `<domain>` matches hostnames and has no CIDR form, so `192.168.0.0/16`
+      parses as a literal hostname and matches nothing — a fix that looks right and
+      silently keeps failing. Generating the entry from the dart-define at build time
+      is possible but needs a Gradle task ordered against `mergeDebugResources` and
+      breaks on every run that omits the define, which is every simulator run. Now a
+      `<base-config>`: **the boundary that matters is the build type, not the host
+      list.** `adb reverse` remains the recommended route for a USB device and needs
+      none of this. `android_network_config_test.dart` guards the release side.*
+      *Verified three ways against the local suite, same code: AVD with
+      `host=10.0.2.2`, iOS simulator with `host=localhost`, and a physical SM-A325F
+      with `host=172.20.10.3 explicit=true`.*
 
 - [ ] **P2-22** Replace the duck-typed `toDate()` in `feed_item_mapper.dart` with a
       real `Timestamp` cast now that `cloud_firestore` has landed. Update mapper tests.
@@ -1127,6 +1152,19 @@ Non-blocking. Fix when convenient.
       so **push delivery has never been observed on any device**. Everything up to the
       radio is verified. Needs a physical Android phone, or a repaired AVD, before
       P3-04 can be called delivered rather than built.
+- [ ] **D-25** `firebase.json` binds all four emulators to `0.0.0.0` rather than the
+      default `127.0.0.1` — Auth 9099, Functions 5001, Firestore 8080, UI 4000.
+      Required for a physical device to reach the suite over the LAN, and without it
+      the packet arrives and is refused. The cost is that **the suite is exposed to
+      every host on the local network**, with no auth in front of it: anyone who can
+      route to the Mac can read and write the whole Firestore, mint tokens for any
+      account through the Auth emulator, and open the UI. Fine on a home network,
+      **not on shared or public wifi** — a café, an office, a conference.
+      **To revert:** delete the four `"host": "0.0.0.0"` lines in `firebase.json`;
+      the default rebinds to loopback. Simulators and the AVD are unaffected either
+      way, and a USB device does not need it — `adb reverse` tunnels to the phone's
+      own loopback (see `docs/local-run.md`). So the revert is free whenever USB is
+      available, and should be the default posture off a trusted network.
 - [ ] **D-15** Feed pagination is one growing `limit`, so page N re-delivers the whole
       window: N pages cost 30+60+90+… document reads, quadratic in pages. Chosen at
       **P2-12** so every page stays live and a reaction on an old message updates in

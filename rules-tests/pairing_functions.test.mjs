@@ -47,6 +47,19 @@ const adminDb = () => getFirestore();
 
 const PROJECT = "qalb-coupleapp-dev";
 
+/**
+ * **Must match `setGlobalOptions({ region })` in `functions/src/index.ts`.**
+ *
+ * `getFunctions(app)` defaults to `us-central1`, and a callable in another
+ * region is simply not there: the emulator answers 404 and the SDK surfaces
+ * `functions/not-found` — indistinguishable from a function that was never
+ * written. Pinned at **P2-16** so Functions sit beside the `asia-south1`
+ * Firestore; this client was not updated at the same time, and the break stayed
+ * invisible because the running emulator kept serving the old region until it
+ * was restarted. A green suite proved only that the emulator was stale.
+ */
+const REGION = "asia-south1";
+
 let testEnv;
 const apps = [];
 
@@ -80,7 +93,7 @@ async function newUser() {
     `${randomUUID()}@onceling.test`,
     "hunter22",
   );
-  const functions = getFunctions(app);
+  const functions = getFunctions(app, REGION);
   connectFunctionsEmulator(functions, "127.0.0.1", 5001);
   return {
     uid: cred.user.uid,
@@ -95,7 +108,7 @@ function anonCaller() {
     `anon-${randomUUID()}`,
   );
   apps.push(app);
-  const functions = getFunctions(app);
+  const functions = getFunctions(app, REGION);
   connectFunctionsEmulator(functions, "127.0.0.1", 5001);
   return (name, data) => httpsCallable(functions, name)(data);
 }
