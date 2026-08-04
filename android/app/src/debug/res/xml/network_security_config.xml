@@ -48,11 +48,19 @@
       adb -s <id> reverse tcp:8080 tcp:8080
       adb -s <id> reverse tcp:9099 tcp:9099
       adb -s <id> reverse tcp:5001 tcp:5001
-      flutter run -d <id> --dart-define=EMULATOR_HOST=localhost
+      flutter run -d <id> with dart-define EMULATOR_HOST=localhost
 
   The device reaches the suite on its own loopback: no LAN, no 0.0.0.0 binding
   in firebase.json (D-25), nothing that breaks when the network moves. This
   file is the fallback for when tunnelling is not available.
+
+  The dart-define flags above are written without their leading dashes on
+  purpose. XML forbids two consecutive hyphens anywhere inside a comment, so
+  the usual spelling is a FATAL PARSE ERROR at resource-merge time rather than
+  a warning, and it blocks the whole build. The error says that string is not
+  permitted within comments. Do not restore the dashes; note that quoting the
+  error message verbatim reintroduces the fault, which is how this line got
+  written twice.
 
   One trap, because it briefly convinced me adb reverse was impossible: the
   Firebase plugins default automaticHostMapping TRUE, which on Android rewrites

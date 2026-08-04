@@ -272,6 +272,13 @@ redirect (**P2-14**). Handle gating in one place, never per-screen.
   sources into `build/ios/SourcePackages/`, and without the exclusion the analyzer
   walks other packages' tests — 394 errors after the Firebase dependencies landed.
   Do not remove the exclusion.
+- **XML comments under `android/` cannot contain two consecutive hyphens.** XML
+  forbids it outright, so it is a fatal parse error during resource merge, not a lint
+  warning — the build stops and nothing runs. The trap is that the natural things to
+  write in these comments all contain it: a `dart-define` flag, a `no-cache` style
+  CLI switch, an em dash typed as two hyphens. Write flags without their leading
+  dashes, or use a real em dash character. Quoting the resulting error message
+  verbatim reintroduces the fault.
 
 ## File editing
 
