@@ -2537,3 +2537,190 @@ describe("P2-39 — setAnniversary", () => {
     assert.equal(after.streakBrokenAt, null);
   });
 });
+
+describe("P2-28 / P2-38 — the two sweeps on the hourly tick", () => {
+  const pairingLib = requireFromFunctions("./lib/pairing.js");
+  const unpairLib = requireFromFunctions("./lib/unpair.js");
+  const streakLib = requireFromFunctions("./lib/streak.js");
+  const A = "uid-a";
+  const B = "uid-b";
+
+  const NOW = new Date("2026-08-08T12:00:00Z");
+  const daysAgo = (days) => new Date(NOW.getTime() - days * 86_400_000);
+  const hoursAgo = (hours) => new Date(NOW.getTime() - hours * 3_600_000);
+
+  async function request(id, { ageDays, status = "pending" }) {
+    await writeDoc(`pairingRequests/${id}`, {
+      fromUid: A,
+      toUid: B,
+      fromDisplayName: "Maya",
+      status,
+      createdAt: daysAgo(ageDays),
+    });
+  }
+
+  test("a 6-day-old request survives, a 7-day-old expires", async () => {
+    await request("req-young", { ageDays: 6 });
+    await request("req-old", { ageDays: 7 });
+
+    const result = await pairingLib.sweepExpiredRequests(adminDb(), NOW);
+    assert.equal(result.expired, 1);
+    assert.equal((await readDoc("pairingRequests/req-young")).status, "pending");
+    assert.equal((await readDoc("pairingRequests/req-old")).status, "expired");
+  });
+
+  test("already-expired and cancelled requests are untouched", async () => {
+    await request("req-done", { ageDays: 30, status: "expired" });
+    await request("req-gone", { ageDays: 30, status: "cancelled" });
+    await request("req-won", { ageDays: 30, status: "accepted" });
+
+    const result = await pairingLib.sweepExpiredRequests(adminDb(), NOW);
+    assert.equal(result.expired, 0);
+    assert.equal((await readDoc("pairingRequests/req-done")).status, "expired");
+    assert.equal((await readDoc("pairingRequests/req-gone")).status, "cancelled");
+    assert.equal((await readDoc("pairingRequests/req-won")).status, "accepted");
+  });
+
+  test("the sweep's write is INDISTINGUISHABLE from a decline's", async () => {
+    // PI-05's whole point. The decline writes {status: 'expired'} and nothing
+    // else — no settledAt, no timestamp. If the sweep left any extra field, a
+    // sender could read their own request and learn which path wrote it, and
+    // the disguise would identify the humans by their absence.
+    await request("req-oracle", { ageDays: 8 });
+    const before = await readDoc("pairingRequests/req-oracle");
+
+    await pairingLib.sweepExpiredRequests(adminDb(), NOW);
+
+    const after = await readDoc("pairingRequests/req-oracle");
+    assert.deepEqual(
+      Object.keys(after).sort(),
+      Object.keys(before).sort(),
+      "the sweep added or removed a field — that is an oracle",
+    );
+    assert.equal(after.status, "expired");
+  });
+
+  test("expiry is idempotent across repeated ticks", async () => {
+    await request("req-idem", { ageDays: 10 });
+
+    const first = await pairingLib.sweepExpiredRequests(adminDb(), NOW);
+    const second = await pairingLib.sweepExpiredRequests(
+      adminDb(),
+      new Date(NOW.getTime() + 3_600_000),
+    );
+    assert.equal(first.expired, 1);
+    assert.equal(second.expired, 0);
+  });
+
+  async function stuckCouple(id, { hoursStuck, withHistory = true }) {
+    await writeDoc(`couples/${id}`, {
+      memberIds: [A, B],
+      status: "unpaired",
+      unpairedAt: hoursAgo(hoursStuck),
+      createdAt: daysAgo(30),
+      streakCount: 0,
+    });
+    if (withHistory) {
+      await writeDoc(`items/${id}-item-1`, {
+        coupleId: id,
+        senderId: A,
+        type: "text",
+        body: "hello",
+        reactions: {},
+        createdAt: daysAgo(10),
+      });
+      await writeDoc(`secretBodies/${id}-item-1`, {
+        coupleId: id,
+        senderId: A,
+        body: "s",
+        createdAt: daysAgo(10),
+      });
+    }
+  }
+
+  test("a couple stuck past the threshold is swept; one inside it is not", async () => {
+    await stuckCouple("stuck-old", { hoursStuck: 2 });
+    await stuckCouple("stuck-new", { hoursStuck: 0.2 });
+
+    const result = await unpairLib.sweepStuckCouples(adminDb(), NOW);
+    assert.equal(result.swept, 1);
+
+    // The old one is gone entirely — items, bodies, and the couple document,
+    // which is the completion marker.
+    assert.equal(await readDoc("couples/stuck-old"), undefined);
+    assert.equal(await readDoc("items/stuck-old-item-1"), undefined);
+    assert.equal(await readDoc("secretBodies/stuck-old-item-1"), undefined);
+
+    // The fresh one is untouched: its trigger may still be working, and the
+    // threshold exists so the backstop cannot race it.
+    assert.notEqual(await readDoc("couples/stuck-new"), undefined);
+    assert.notEqual(await readDoc("items/stuck-new-item-1"), undefined);
+  });
+
+  test("a healthy couple is never touched by the backstop", async () => {
+    await writeDoc("couples/healthy", {
+      memberIds: [A, B],
+      createdAt: daysAgo(30),
+      streakCount: 3,
+    });
+    const result = await unpairLib.sweepStuckCouples(adminDb(), NOW);
+    assert.equal(result.swept, 0);
+    assert.notEqual(await readDoc("couples/healthy"), undefined);
+  });
+
+  test("the backstop is idempotent across repeated ticks", async () => {
+    await stuckCouple("stuck-idem", { hoursStuck: 3 });
+
+    const first = await unpairLib.sweepStuckCouples(adminDb(), NOW);
+    const second = await unpairLib.sweepStuckCouples(
+      adminDb(),
+      new Date(NOW.getTime() + 3_600_000),
+    );
+    assert.equal(first.swept, 1);
+    assert.equal(second.swept, 0, "the couple document is gone, so is the work");
+  });
+
+  test("the backstop's end state EQUALS the primary's", async () => {
+    // Same seed, two paths: sweepCouple called directly (what the trigger
+    // does) and the backstop finding it by query. If these ever diverge, two
+    // deletion paths have stopped agreeing — the exact failure reusing the
+    // code was meant to prevent. Compared field-for-field on what remains.
+    await stuckCouple("via-primary", { hoursStuck: 2 });
+    await stuckCouple("via-backstop", { hoursStuck: 2 });
+
+    await unpairLib.sweepCouple(adminDb(), "via-primary");
+    await unpairLib.sweepStuckCouples(adminDb(), NOW);
+
+    for (const id of ["via-primary", "via-backstop"]) {
+      assert.equal(await readDoc(`couples/${id}`), undefined, id);
+      assert.equal(await readDoc(`items/${id}-item-1`), undefined, id);
+      assert.equal(await readDoc(`secretBodies/${id}-item-1`), undefined, id);
+    }
+  });
+
+  test("the hourly tick carries all three sweeps, as deployed", async () => {
+    // The integration: runHourlyTick is what the schedule actually calls.
+    // Three seeds, one call, three effects — proving the wiring rather than
+    // three functions that might not be on the tick at all.
+    await request("tick-req", { ageDays: 9 });
+    await stuckCouple("tick-stuck", { hoursStuck: 2 });
+    await writeDoc("couples/tick-streak", {
+      memberIds: [A, B],
+      memberNames: { [A]: "Maya", [B]: "Sam" },
+      anniversaryDate: daysAgo(3),
+      createdAt: daysAgo(3),
+      streakCount: 0,
+      timezone: "UTC",
+    });
+
+    await streakLib.runHourlyTick(adminDb(), NOW);
+
+    assert.equal((await readDoc("pairingRequests/tick-req")).status, "expired");
+    assert.equal(await readDoc("couples/tick-stuck"), undefined);
+    assert.notEqual(
+      (await readDoc("couples/tick-streak")).streakEvaluatedThrough,
+      null,
+      "the streak evaluation still runs on the shared tick",
+    );
+  });
+});

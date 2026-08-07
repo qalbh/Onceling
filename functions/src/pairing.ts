@@ -354,6 +354,84 @@ export const cancelPairingRequest = onCall(async (request) => {
 /** Status written when a request dies without being accepted. */
 const STATUS_EXPIRED = "expired";
 
+/** How long a pending request lives (**P2-28**). Timezone-independent on
+ *  purpose — 7 days is 7 days, an instant plus a duration, deliberately
+ *  decoupled from Q3: a request is not a calendar artefact and giving it a
+ *  midnight would only create a boundary someone could probe. */
+export const REQUEST_TTL_DAYS = 7;
+
+/** Requests examined per sweep pass. */
+export const REQUEST_SWEEP_BATCH = 300;
+
+/**
+ * **P2-28** — pending requests older than the TTL become `expired`.
+ *
+ * **This is PI-05's missing half.** The decline path has always written
+ * `expired`, promising the sender indistinguishability from a timeout — but
+ * nothing wrote the timeout, so a fast `expired` was the only kind there was
+ * and the disguise had nothing to hide behind. This creates the crowd the
+ * decline disappears into.
+ *
+ * **The write is `{status: 'expired'}` and NOTHING else** — byte-identical to
+ * the decline's. No `sweptAt`, no marker: any field this path writes that the
+ * decline does not is a flag saying "no human did this", and its absence says
+ * the opposite. Same reasoning as the decline's missing `settledAt`, from the
+ * other side.
+ *
+ * **No notification to the sender, and not only out of kindness.** A push
+ * saying "your request expired" a week on is a small cruelty about something
+ * the app already shows — but the sharper problem is that the sweep is the
+ * only path that could send one. A decline never would. So the push's ABSENCE
+ * at day seven would become the tell: expired-without-a-push means a person
+ * declined. The only silence that keeps PI-05's promise is total.
+ *
+ * **Each expiry is its own small transaction rather than a blind batch.** The
+ * page is read outside; the status is re-checked inside. A request accepted in
+ * the window between query and write must not be clobbered to `expired` — an
+ * accepted request whose document says expired would gaslight the sender the
+ * moment it mattered most. Idempotent and resumable: an expired request
+ * leaves the query's result set, so a rerun converges on nothing to do.
+ *
+ * @param {Firestore} db the admin handle
+ * @param {Date} now the current instant
+ * @return {Promise<{expired: number}>} how many were expired
+ */
+export async function sweepExpiredRequests(
+  db: Firestore,
+  now: Date = new Date(),
+): Promise<{ expired: number }> {
+  const cutoff = Timestamp.fromMillis(
+    now.getTime() - REQUEST_TTL_DAYS * 86_400_000,
+  );
+
+  let expired = 0;
+  for (;;) {
+    // INDEX: pairingRequests — status ASC + createdAt ASC. Declared in
+    // firestore.indexes.json; the emulator does not enforce it (D-10), so it
+    // must be verified against dev on the next deploy.
+    const page = await db
+      .collection("pairingRequests")
+      .where("status", "==", "pending")
+      .where("createdAt", "<=", cutoff)
+      .limit(REQUEST_SWEEP_BATCH)
+      .get();
+    if (page.empty) break;
+
+    for (const doc of page.docs) {
+      await db.runTransaction(async (t) => {
+        const snap = await t.get(doc.ref);
+        if (snap.data()?.status !== "pending") return;
+        t.update(doc.ref, { status: STATUS_EXPIRED });
+        expired++;
+      });
+    }
+
+    if (page.size < REQUEST_SWEEP_BATCH) break;
+  }
+
+  return { expired };
+}
+
 /**
  * Every pending request touching `uid`, in either direction.
  *

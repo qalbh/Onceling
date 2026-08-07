@@ -105,6 +105,34 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "pairingRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "couples",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "unpairedAt",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

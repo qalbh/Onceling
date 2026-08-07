@@ -4,11 +4,11 @@
 
 ## Now
 
-**P2-28** — expire pending pairing requests (7 days, scheduled).
+**D-28** — prove the orphan half of the photo sweep on dev, with throwaway accounts.
 
 ## At a glance
 
-**Phase 3 of 4** · **49 open · 55 done**
+**Phase 3 of 4** · **47 open · 57 done**
 Blocked on money: **4** — P2-20 (Sign in with Apple), P4-06 (prod Blaze), P4-07
 (TestFlight), P4-09 (APNs key) — all the same paid Apple Developer account except
 P4-06, which is a billing plan.
@@ -21,15 +21,17 @@ adds the money items above.
 
 ## Next three
 
-1. **P2-28** Expire pending requests (7 days, scheduled) — PI-05's guarantee rests
-   on it: a declined request must be indistinguishable from an expired one, which
-   requires expiry to exist.
-2. **P2-38** Backstop sweep for couples stuck at `status: 'unpaired'` — it shares
-   P2-28's schedule, so building them together costs one scheduled function, not
-   two, and closes the sweep gap P2-36's entry records.
-3. **D-28** Prove the orphan half of the photo sweep on dev, with throwaway
+1. **D-28** Prove the orphan half of the photo sweep on dev, with throwaway
    accounts — the one place "destroy everything" is still unproven, and brief §10
-   and Q5 both hang on it. Test plan already written in the entry.
+   and Q5 both hang on it. Test plan already written in the entry. Deploying the
+   functions first also puts P2-28/P2-38's new indexes and the tick's new sweeps
+   where D-10 says they must be verified.
+2. **P2-43** `setTimezone(zone)` callable — completes the settings-edit pair P2-39
+   started; `normaliseTimezone` already exists, and the going-forward-only rule is
+   written in the entry.
+3. **P2-22** Replace the duck-typed `toDate()` in the feed mapper — small standing
+   debt, safe since `cloud_firestore` landed, and it removes a runtime failure
+   class the analyzer could be catching.
 
 <!--
   The counts above are COMPUTED, not remembered: `tools/status-counts.sh`
@@ -958,10 +960,28 @@ there is data.
       with no client access. Budget is spent *before* validation, so failed
       probes are not free and an exhausted caller gets the same
       resource-exhausted answer whether the code exists or not — no oracle.*
-- [ ] **P2-28** Expire pending requests after 7 days. Scheduled Function. Expiry is
+- [x] **P2-28** Expire pending requests after 7 days. Scheduled Function. Expiry is
       timezone-independent — 7 days is 7 days — so this is **not** blocked by Q3 or by
       **P3-02**. It can share **P3-02**'s schedule if convenient, but does not require
       one.
+      ***This is PI-05's missing half, and the write proves it.*** *The decline has
+      always written `expired`, promising indistinguishability from a timeout — but
+      nothing wrote the timeout, so a fast `expired` was the only kind there was.
+      The sweep writes `{status: 'expired'}` and NOTHING else, byte-identical to the
+      decline's write: any extra field (`sweptAt`, a marker) would say "no human did
+      this", and its absence would say the opposite. A test asserts the two writes
+      leave identical key sets — the oracle test, not the behaviour test.*
+      ***No notification to the sender, and not only out of kindness.*** *The sweep
+      is the only path that could send one; a decline never would. So the push's
+      ABSENCE at day seven would become the tell: expired-without-a-push means a
+      person declined. The only silence that keeps PI-05's promise is total.*
+      *Each expiry is its own small transaction rather than a blind batch: the page
+      is read outside, the status re-checked inside, so a request accepted between
+      query and write cannot be clobbered to `expired` — an accepted request whose
+      document says expired would gaslight the sender at the worst moment.
+      Idempotent and resumable; rides `runHourlyTick` rather than its own schedule
+      (**D-20**). Index declared: `pairingRequests` status ASC + createdAt ASC —
+      **D-10** applies, verify on next deploy.*
 - [x] **P2-34** The splash error state has no escape. A signed-in user whose profile
       document is missing sees only a retry, and retry cannot help if the P2-30 write
       never landed — the document does not exist to appear. The user is stuck until
@@ -1035,11 +1055,26 @@ there is data.
       *No rules change: `couples` already denies all client writes and `items` /
       `secretBodies` fall to the catch-all deny. Confirmed with seven probes rather
       than assumed, so no auditor run.*
-- [ ] **P2-38** Backstop sweep for couples stuck at `status: 'unpaired'`. **P2-36**'s
+- [x] **P2-38** Backstop sweep for couples stuck at `status: 'unpaired'`. **P2-36**'s
       trigger retries, but a sweep that exhausts its retries leaves a couple marked
       unpaired forever with nobody looking, and its data undeleted — which the unpair
       copy promises is gone. A scheduled pass over that state closes it; it can share
       **P2-28**'s schedule.
+      ***Threshold: one hour.*** *A normal sweep completes in seconds — batches of 150
+      over a two-person thread — so an hour is two orders of magnitude past any live
+      run and cannot fire on one still working. If a pathological retry IS still
+      limping, `sweepCouple` is idempotent, so overlap wastes reads rather than
+      corrupting anything: the threshold prevents pointless double work, not
+      disaster.*
+      ***Calls `sweepCouple` — the trigger's own function, not a second
+      implementation.*** *Two deletion paths that must agree is how they stop
+      agreeing; with one definition of "everything" there is nothing to drift. A test
+      seeds two identical stuck couples, runs one through each path, and asserts the
+      end states are equal.*
+      ***Every firing logs loudly***, *with the couple id and how long it sat stuck:
+      zero firings means the trigger is healthy, anything else is a bug report. Rides
+      `runHourlyTick`; index declared: `couples` status ASC + unpairedAt ASC —
+      **D-10** applies, verify on next deploy.*
 - [ ] **P2-37** Black screen on sign-out, unreproduced. Observed once on the 16e after
       a paired sign-in, an attempted unpair, and sign-out. Two hypotheses disproven
       with device traces: the celebration detector never arms on sign-out (`_observe`

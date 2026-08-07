@@ -3,6 +3,8 @@ import { Firestore, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 
 import { celebrateMilestone } from "./milestone.js";
+import { sweepExpiredRequests } from "./pairing.js";
+import { sweepStuckCouples } from "./unpair.js";
 import {
   daysBetweenKeys,
   localDateKey,
@@ -404,14 +406,60 @@ export async function sweepStreaks(
   return { examined: couples.size, updated };
 }
 
-export const updateStreaksScheduled = onSchedule(
-  { schedule: "every 1 hours", retryCount: 3 },
-  async () => {
-    const result = await sweepStreaks(getFirestore());
+/**
+ * Everything the hourly tick carries, in one place (**P3-02**, **P2-28**,
+ * **P2-38** — and **P3-03**, which rides inside the streak evaluation).
+ *
+ * One schedule, several sweeps: each additional scheduled function walking
+ * its own query would compound **D-20**'s read cost for nothing, and the
+ * jobs are all the same shape — idempotent cleanup that tolerates running an
+ * hour late. Each is isolated so one failing cannot starve the others.
+ *
+ * Exported so a test can run the tick as deployed, clock injected, rather
+ * than asserting three functions that might not actually be wired.
+ *
+ * @param {Firestore} db the admin handle
+ * @param {Date} now the current instant
+ * @return {Promise<void>} nothing — each job logs its own outcome
+ */
+export async function runHourlyTick(
+  db: Firestore,
+  now: Date = new Date(),
+): Promise<void> {
+  try {
+    const result = await sweepStreaks(db, now);
     if (result.updated > 0) {
       console.log(
         `[P3-02] scored ${result.updated} couple(s) of ${result.examined}.`,
       );
     }
+  } catch (err) {
+    console.error(`[P3-02] streak sweep failed: ${err}`);
+  }
+
+  try {
+    const result = await sweepExpiredRequests(db, now);
+    if (result.expired > 0) {
+      console.log(`[P2-28] expired ${result.expired} stale request(s).`);
+    }
+  } catch (err) {
+    console.error(`[P2-28] request sweep failed: ${err}`);
+  }
+
+  try {
+    // Logs its own firings, loudly — a silent backstop tells you nothing
+    // about how often the primary fails.
+    await sweepStuckCouples(db, now);
+  } catch (err) {
+    console.error(`[P2-38] backstop failed: ${err}`);
+  }
+}
+
+export const updateStreaksScheduled = onSchedule(
+  // The deployed name predates the tick carrying more than streaks; renaming
+  // a live scheduled function is delete-and-recreate churn for cosmetics.
+  { schedule: "every 1 hours", retryCount: 3 },
+  async () => {
+    await runHourlyTick(getFirestore());
   },
 );

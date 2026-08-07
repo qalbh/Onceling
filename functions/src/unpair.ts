@@ -1,5 +1,10 @@
 import { getApps, initializeApp } from "firebase-admin/app";
-import { FieldValue, Firestore, getFirestore } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  Firestore,
+  Timestamp,
+  getFirestore,
+} from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -242,6 +247,80 @@ export async function sweepCouple(
   // Last, so an interrupted sweep stays discoverable and resumable.
   await db.doc(`couples/${coupleId}`).delete();
   return { items: deleted, photos };
+}
+
+/** How long a couple may sit `unpaired` before the backstop assumes the
+ *  trigger's retries have failed (**P2-38**). One hour: a normal sweep
+ *  completes in seconds (batches of 150 over a two-person thread), so an hour
+ *  is two orders of magnitude past any live run — this cannot fire on a sweep
+ *  still working. And if a pathological retry IS still limping along,
+ *  `sweepCouple` is idempotent, so overlap wastes reads rather than
+ *  corrupting anything: the threshold prevents pointless double work, not
+ *  disaster. */
+export const BACKSTOP_THRESHOLD_MS = 3_600_000;
+
+/** Stuck couples examined per backstop pass. */
+export const BACKSTOP_BATCH = 25;
+
+/**
+ * **P2-38** — the backstop for couples stuck at `status: 'unpaired'`.
+ *
+ * **P2-36**'s sweep is trigger-driven with retries; if they exhaust, the
+ * couple sits marked unpaired with its data intact and nobody looking — Q5's
+ * promise quietly failing. The couple document is the work queue (`unpaired`
+ * means unfinished, deletion is the completion marker), so finding the stuck
+ * ones is one query.
+ *
+ * **Calls [sweepCouple] — the same function the trigger calls, not a second
+ * implementation.** Two deletion paths that must agree is how they stop
+ * agreeing; this way there is exactly one definition of "everything", and the
+ * backstop cannot drift from the primary because there is nothing to drift.
+ *
+ * **Every firing is logged loudly.** A backstop that runs silently tells you
+ * nothing about how often the primary fails, and that frequency is the number
+ * worth knowing: zero means the trigger is healthy, anything else is a bug
+ * report with a couple id in it.
+ *
+ * @param {Firestore} db the admin handle
+ * @param {Date} now the current instant
+ * @return {Promise<{swept: number}>} how many stuck couples were finished
+ */
+export async function sweepStuckCouples(
+  db: Firestore,
+  now: Date = new Date(),
+): Promise<{ swept: number }> {
+  const cutoff = Timestamp.fromMillis(now.getTime() - BACKSTOP_THRESHOLD_MS);
+
+  // INDEX: couples — status ASC + unpairedAt ASC. Declared in
+  // firestore.indexes.json; the emulator does not enforce it (D-10), so it
+  // must be verified against dev on the next deploy.
+  const stuck = await db
+    .collection("couples")
+    .where("status", "==", "unpaired")
+    .where("unpairedAt", "<=", cutoff)
+    .limit(BACKSTOP_BATCH)
+    .get();
+
+  let swept = 0;
+  for (const doc of stuck.docs) {
+    try {
+      const result = await sweepCouple(db, doc.id);
+      swept++;
+      console.warn(
+        `[P2-38] BACKSTOP fired: couple ${doc.id} was stuck unpaired since ` +
+          `${doc.data().unpairedAt?.toDate?.()?.toISOString?.() ?? "?"} — ` +
+          `the trigger's retries failed. Swept ${result.items} item(s) and ` +
+          `${result.photos} photo(s). If this fires often, the primary sweep ` +
+          "is broken, not busy.",
+      );
+    } catch (err) {
+      // The next hourly pass retries; the couple document is still there to
+      // find, which is exactly why sweepCouple deletes it last.
+      console.error(`[P2-38] backstop failed for ${doc.id}: ${err}`);
+    }
+  }
+
+  return { swept };
 }
 
 /**
