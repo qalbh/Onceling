@@ -1,4 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      P2-13. Camera only. Gallery reads go through the system photo picker,
+      which hands back a single granted URI and needs no storage permission on
+      any supported version; asking for READ_MEDIA_IMAGES as well would request
+      the whole library to send one picture.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <application
         android:label="couple_app"
         android:name="${applicationName}"

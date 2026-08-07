@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../common/time_format.dart';
 import '../../../theme/theme_colors.dart';
+import '../../../theme/theme_glyphs.dart';
 import '../../pairing/couple_names.dart';
 import '../models/feed_item.dart';
 import 'feed_header.dart';
@@ -209,31 +210,90 @@ class _PhotoWell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final url = mediaUrl;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: SizedBox(
+        width: width,
+        height: width / 1.26,
+        // **P2-15: all three states, none of them a bare grey box.**
+        //
+        // Empty is a real case rather than a defensive one: an item whose
+        // upload is still finishing has no `mediaUrl` yet, and P2-13 writes the
+        // document only after the object lands — so this is what a photo from
+        // an older client, or a genuinely broken write, looks like.
+        child: url == null || url.isEmpty
+            ? const _PhotoState(glyph: '🖼️', label: 'Photo unavailable')
+            : Image.network(
+                url,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  final expected = progress.expectedTotalBytes;
+                  return _PhotoState(
+                    glyph: '🖼️',
+                    label: 'Loading',
+                    progress: expected == null
+                        ? null
+                        : progress.cumulativeBytesLoaded / expected,
+                  );
+                },
+                // A URL that 404s or times out. Saying so is the whole point:
+                // a silent grey rectangle reads as our bug, and leaves the
+                // person with nothing to do about it.
+                errorBuilder: (context, error, stack) => const _PhotoState(
+                  glyph: '🌥️',
+                  label: "This photo didn't load",
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+/// Loading, empty and error inside the photo's own footprint.
+///
+/// One widget for all three so they cannot drift in size — the bubble must not
+/// resize when an image resolves, or the feed jumps under a reader's thumb.
+class _PhotoState extends StatelessWidget {
+  const _PhotoState({required this.glyph, required this.label, this.progress});
+
+  final String glyph;
+  final String label;
+  final double? progress;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Container(
-      width: width,
-      height: width / 1.26,
+      color: context.palette.photoPlaceholder,
       alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: context.palette.photoPlaceholder,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerLowest.withValues(
-            alpha: 0.72,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Glyph(glyph, size: context.glyphs.emptyState),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleSmall!.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          mediaUrl ?? 'photo',
-          style: theme.textTheme.titleSmall!.copyWith(
-            fontFamily: 'Menlo',
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
+          if (progress != null) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: 96,
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 3,
+                backgroundColor: theme.colorScheme.surfaceContainerLowest,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

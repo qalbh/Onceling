@@ -13,21 +13,23 @@ import '../widgets/floral_hero.dart';
 
 /// Entry screen: brand mark over the bouquet, sign-in options pinned low.
 ///
-/// Email and Google both work. Apple (**P2-20**) is still disabled — it needs a
-/// paid Apple Developer account, and a button that opens nothing is worse than
-/// one that is visibly unavailable.
+/// **Two options, styled identically.** Google and email both work, and neither
+/// is presented as the better one — see [AuthButton].
+///
+/// Apple was here as a permanently disabled button until there is a paid Apple
+/// Developer account (**P2-20**). That was the wrong call: on the first screen a
+/// user ever sees, a dead control does not read as "coming soon", it reads as
+/// broken software. It is gone from the UI entirely, which changes nothing about
+/// the obligation — Guideline 4.8 still makes Sign in with Apple mandatory for
+/// the iOS build the moment Google sign-in ships there.
 ///
 /// Nothing here navigates on success: auth-gated routing is **P2-14**.
 class SignInScreen extends ConsumerStatefulWidget {
   const SignInScreen({
     super.key,
-    this.onContinueWithApple,
     this.onContinueWithGoogle,
     this.onUseEmailOrPhone,
   });
-
-  /// Null until **P2-20** wires Apple; the button renders disabled.
-  final VoidCallback? onContinueWithApple;
 
   /// Overrides the built-in Google handler. Tests pass one; the app does not.
   final VoidCallback? onContinueWithGoogle;
@@ -96,25 +98,20 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                         ),
                         const Spacer(),
                         const SizedBox(height: 24),
-                        PrimaryAuthButton(
-                          label: 'Continue with Apple',
-                          onPressed: widget.onContinueWithApple,
-                        ),
-                        const SizedBox(height: 14),
-                        SecondaryAuthButton(
+                        AuthButton(
                           label: 'Continue with Google',
                           onPressed: _busy
                               ? null
                               : (widget.onContinueWithGoogle ?? _google),
                         ),
-                        const SizedBox(height: 6),
-                        UnderlinedTextButton(
-                          label: 'Use email or phone',
+                        const SizedBox(height: 14),
+                        AuthButton(
+                          label: 'Sign in with email',
                           onPressed:
                               widget.onUseEmailOrPhone ??
                               () => EmailAuthSheet.show(context),
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 20),
                         Glyph('❤️', size: context.glyphs.heart),
                         const SizedBox(height: 6),
                         Text(

@@ -1,0 +1,104 @@
+rules_version = '2';
+
+// **P2-13** — Cloud Storage rules for couple photos.
+//
+// The mirror of `firestore.rules`' `items` block, and deliberately so: a photo
+// and its item document are one message split across two systems, and a reader
+// who can reach one must be exactly the reader who can reach the other. If
+// these two files ever disagree, the looser one is the real policy.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // The caller's own couple, read from their profile.
+    //
+    // `coupleId` is the load-bearing field of the pairing model (CLAUDE.md):
+    // it is set only by P2-09b's transaction and cleared only by the unpair
+    // path, both server-side, and no client write to it is admitted. That is
+    // what makes it safe to use as the authority here.
+    function myCoupleId() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
+             .data.coupleId;
+    }
+
+    // Membership, by comparing the path's couple to the caller's own.
+    //
+    // A null coupleId matches nothing. An unpaired user is a member of no
+    // couple, and `null == null` granting access to an unscoped path is
+    // exactly the hole this shape exists to close.
+    function isCoupleMember(coupleId) {
+      return isSignedIn()
+             && coupleId is string
+             && myCoupleId() == coupleId;
+    }
+
+    // 5 MB. The client compresses to a 1600px long edge at quality 80, which
+    // lands around 200-500 KB, so this is roughly ten times the expected size
+    // — loose enough never to reject a legitimate photo, tight enough that a
+    // modified client cannot use the bucket as free storage. The cap is here
+    // rather than only in the app because the client is untrusted.
+    function withinSizeCap() {
+      return request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // The client always uploads JPEG: compression re-encodes every input,
+    // including HEIC from an iPhone camera. So the strictest possible check is
+    // also the accurate one.
+    function isJpeg() {
+      return request.resource.contentType.matches('image/jpe?g');
+    }
+
+    // The only writable shape in the bucket. `{photoId}` is the item id, minted
+    // client-side before the upload so the object and its document share a key
+    // — see `PhotoUploader` for why that ordering is what makes an orphan
+    // reclaimable.
+    match /couples/{coupleId}/photos/{photoId} {
+      allow read: if isCoupleMember(coupleId);
+
+      // `resource == null` is what actually makes a photo immutable, and it is
+      // NOT redundant with the `update` rule below.
+      //
+      // **Measured on dev, not assumed.** A write to an existing path is
+      // supposed to decompose into `update`, which is denied — it does not.
+      // Both the emulator AND real Firebase evaluate an overwrite against
+      // `create`, so `allow update: if false` never fires and a sender could
+      // silently replace a photo the other person had already seen. This
+      // clause is the only thing that stops it.
+      allow create: if resource == null
+                    && isCoupleMember(coupleId)
+                    && isJpeg()
+                    && withinSizeCap();
+
+      // A photo is immutable once written. Overwriting is not a feature anyone
+      // asked for, and it would let a sender silently replace an image the
+      // other person has already seen — the same integrity argument that makes
+      // `items` reactions-only on update.
+      //
+      // **UNVERIFIED LOCALLY (D-26).** Per the documented semantics a write to
+      // an existing path decomposes into `update` and is denied here. The
+      // Storage EMULATOR does not implement that decomposition: it evaluates an
+      // overwrite against `create`, and it reports a non-null `resource` for a
+      // brand-new object too, so neither this rule nor a `resource == null`
+      // guard can be exercised locally — the latter was tried and it broke
+      // every legitimate upload. This is correct by the docs and unproven by
+      // our tests; it needs verifying against dev.
+      allow update: if false;
+
+      // **Nobody deletes from the client.** Erasure is P2-36's sweep, server-
+      // side with the Admin SDK, which bypasses these rules. A client that
+      // deletes its own copy has not deleted anything (CLAUDE.md), and a client
+      // that *can* delete is a client that can destroy the other person's
+      // history.
+      allow delete: if false;
+    }
+
+    // Everything else, including any future path someone adds without thinking
+    // about rules. Default deny is the only safe floor.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

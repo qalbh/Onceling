@@ -1,34 +1,53 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
 import '../../theme/theme_colors.dart';
 import '../../theme/theme_glyphs.dart';
 import '../feed/models/feed_item.dart';
+import 'photo_upload_service.dart';
 
 /// What compose hands back when the user sends.
 class ComposeResult {
-  const ComposeResult({required this.text, this.secretDuration});
+  const ComposeResult({required this.text, this.secretDuration, this.photo});
 
   final String text;
 
   /// Null for an ordinary message; set when sealed as a secret.
   final SecretDuration? secretDuration;
 
+  /// A picked, uncompressed file (**P2-13**). The caller uploads it — the
+  /// sheet is gone by then, and the progress has to outlive it.
+  final File? photo;
+
   bool get isSecret => secretDuration != null;
+
+  /// A photo send. [text] becomes the caption, and may be empty.
+  bool get isPhoto => photo != null;
 }
 
 /// Bottom sheet for writing a message. Toggling "Secret" morphs it in place:
 /// the title, placeholder and send label change and the timer panel expands.
 class ComposeSheet extends StatefulWidget {
-  const ComposeSheet({super.key});
+  const ComposeSheet({super.key, required this.picker});
 
-  static Future<ComposeResult?> show(BuildContext context) {
+  /// Opens the camera or gallery and returns the file, or null on cancel.
+  ///
+  /// Injected so a widget test can drive the photo path without a platform
+  /// channel — the same reason `FeedService` is an interface.
+  final Future<File?> Function(PhotoSource source) picker;
+
+  static Future<ComposeResult?> show(
+    BuildContext context, {
+    required Future<File?> Function(PhotoSource source) picker,
+  }) {
     return showModalBottomSheet<ComposeResult>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.22),
-      builder: (_) => const ComposeSheet(),
+      builder: (_) => ComposeSheet(picker: picker),
     );
   }
 
@@ -40,8 +59,11 @@ class _ComposeSheetState extends State<ComposeSheet> {
   final _controller = TextEditingController();
   bool _isSecret = false;
   SecretDuration _duration = SecretDuration.thirtySeconds;
+  File? _photo;
+  String? _pickError;
 
-  bool get _canSend => _controller.text.trim().isNotEmpty;
+  /// A photo may be sent with no caption, so it satisfies "send" on its own.
+  bool get _canSend => _controller.text.trim().isNotEmpty || _photo != null;
 
   @override
   void dispose() {
@@ -53,9 +75,59 @@ class _ComposeSheetState extends State<ComposeSheet> {
     Navigator.of(context).pop(
       ComposeResult(
         text: _controller.text.trim(),
-        secretDuration: _isSecret ? _duration : null,
+        // A photo is never a secret — see `_pickPhoto`.
+        secretDuration: _isSecret && _photo == null ? _duration : null,
+        photo: _photo,
       ),
     );
+  }
+
+  /// Camera or gallery. Both platforms prompt for permission on first use;
+  /// `PhotoUploadService.pick` translates a refusal into a sentence.
+  Future<void> _choosePhotoSource() async {
+    final source = await showModalBottomSheet<PhotoSource>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.of(sheetContext).pop(PhotoSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from library'),
+              onTap: () => Navigator.of(sheetContext).pop(PhotoSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+    await _pickPhoto(source);
+  }
+
+  /// **P2-13.** Picking is local UI state, so `setState` — the *upload* is the
+  /// part that outlives this sheet and lives in Riverpod.
+  Future<void> _pickPhoto(PhotoSource source) async {
+    try {
+      final file = await widget.picker(source);
+      if (file == null || !mounted) return;
+      setState(() {
+        _photo = file;
+        // Attaching a photo leaves secret mode. Secrets are text-only (P2-13):
+        // P3-01's reveal deletes a `secretBodies` document, and a Storage
+        // object is a second system it cannot reach in the same operation —
+        // so a secret photo could not honour the one promise a secret makes.
+        _isSecret = false;
+      });
+    } on PhotoUploadFailure catch (failure) {
+      if (!mounted) return;
+      setState(() => _pickError = failure.message);
+    }
   }
 
   @override
@@ -102,6 +174,22 @@ class _ComposeSheetState extends State<ComposeSheet> {
                   _field(),
                   const SizedBox(height: 18),
                   _chips(),
+                  if (_photo case final photo?) ...[
+                    const SizedBox(height: 16),
+                    _PhotoPreview(
+                      photo: photo,
+                      onRemove: () => setState(() => _photo = null),
+                    ),
+                  ],
+                  if (_pickError case final message?) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      message,
+                      style: Theme.of(context).textTheme.titleSmall!.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
                   // Timer panel only exists in secret mode.
                   if (_isSecret) ...[
                     const SizedBox(height: 18),
@@ -160,13 +248,25 @@ class _ComposeSheetState extends State<ComposeSheet> {
       spacing: 12,
       runSpacing: 12,
       children: [
-        _ComposeChip(label: 'Add photo', selected: false, onTap: () {}),
         _ComposeChip(
-          label: 'Secret',
-          leading: '🔒',
-          selected: _isSecret,
-          onTap: () => setState(() => _isSecret = !_isSecret),
+          label: _photo == null ? 'Add photo' : 'Photo attached',
+          leading: '🖼️',
+          selected: _photo != null,
+          onTap: _photo == null
+              ? _choosePhotoSource
+              : () => setState(() => _photo = null),
         ),
+        // Hidden once a photo is attached rather than disabled: a secret photo
+        // is not a thing this app can honour (see `_pickPhoto`), and offering
+        // a control that silently does nothing is the mistake P2-42 removed
+        // from the sign-in screen.
+        if (_photo == null)
+          _ComposeChip(
+            label: 'Secret',
+            leading: '🔒',
+            selected: _isSecret,
+            onTap: () => setState(() => _isSecret = !_isSecret),
+          ),
       ],
     );
   }
@@ -366,6 +466,50 @@ class _DurationChip extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The attached photo, before it is sent.
+///
+/// Shown from the local file rather than a network URL: nothing has been
+/// uploaded yet, and the point is to confirm *this* is the right picture
+/// before it goes to the other person.
+class _PhotoPreview extends StatelessWidget {
+  const _PhotoPreview({required this.photo, required this.onRemove});
+
+  final File photo;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.topRight,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: ConstrainedBox(
+            // Capped rather than fixed: a portrait photo and a landscape one
+            // are both allowed to be themselves.
+            constraints: const BoxConstraints(maxHeight: 220),
+            child: Image.file(photo, width: double.infinity, fit: BoxFit.cover),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Material(
+            color: Theme.of(
+              context,
+            ).colorScheme.surface.withValues(alpha: 0.86),
+            shape: const CircleBorder(),
+            child: IconButton(
+              onPressed: onRemove,
+              icon: const Icon(Icons.close),
+              tooltip: 'Remove photo',
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

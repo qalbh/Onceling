@@ -7,6 +7,8 @@ import '../../../common/app_toast.dart';
 import '../../../common/providers.dart';
 import '../../../theme/theme_colors.dart';
 import '../../compose/compose_sheet.dart';
+import '../../compose/photo_send_controller.dart';
+import '../../compose/widgets/photo_upload_banner.dart';
 import '../../mood/mood_sheet.dart';
 import '../../pairing/couple_names.dart';
 import '../../secret/screens/secret_reveal_screen.dart';
@@ -90,12 +92,33 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   }
 
   Future<void> _compose() async {
-    final result = await ComposeSheet.show(context);
+    final result = await ComposeSheet.show(
+      context,
+      // Resolved lazily rather than passed as a torn-off method: reading the
+      // provider here would construct `FirebaseStorage.instance` every time
+      // the sheet opens, including for anyone who only wants to type.
+      picker: (source) => ref.read(photoUploadServiceProvider).pick(source),
+    );
     if (result == null || !mounted) return;
 
     final me = feedWriteIdentity(ref);
     if (me == null) return;
     final service = ref.read(feedServiceProvider);
+
+    // **P2-13.** Not routed through `_send`: the controller already reports
+    // its own failure through the progress banner, and a second toast on top
+    // of it would say the same thing twice.
+    if (result.photo case final photo?) {
+      await ref
+          .read(photoSendControllerProvider.notifier)
+          .send(
+            file: photo,
+            coupleId: me.coupleId,
+            senderId: me.senderId,
+            caption: result.text.isEmpty ? null : result.text,
+          );
+      return;
+    }
 
     await _send(() {
       if (result.secretDuration case final duration?) {
@@ -213,6 +236,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   onOpenSettings: () => context.push(AppRoutes.settings),
                 ),
               ),
+              // **P2-13.** Sits under the header rather than over the thread:
+              // an upload is not urgent enough to cover what someone is
+              // reading, but it must be visible without scrolling.
+              const PhotoUploadBanner(),
               // Only the thread swaps between the three states. The header
               // above and the tray below never depend on `items`.
               Expanded(

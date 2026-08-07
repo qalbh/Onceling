@@ -43,6 +43,27 @@ abstract interface class FeedService {
     required SecretDuration duration,
   });
 
+  /// An id for a photo item, minted before anything is written (**P2-13**).
+  ///
+  /// The Storage object is keyed by it, so it has to exist before the upload
+  /// starts — and the two cannot be created in one transaction, because they
+  /// live in different systems. See `PhotoUploadService` for why the upload
+  /// goes first and what happens to the loser of that race.
+  String mintItemId();
+
+  /// Writes the item for an already-uploaded photo.
+  ///
+  /// Called only after the object is in the bucket and [mediaUrl] resolves. If
+  /// this throws, the object is an orphan — invisible, and reclaimed with the
+  /// couple's prefix by P2-36's sweep.
+  Future<void> sendPhoto({
+    required String coupleId,
+    required String senderId,
+    required String itemId,
+    required String mediaUrl,
+    String? caption,
+  });
+
   /// Adds or replaces the caller's own reaction on [itemId].
   ///
   /// A single-key update, because the rules permit exactly that: the document
@@ -137,6 +158,36 @@ class FirestoreFeedService implements FeedService {
             ),
           ))
         .commit();
+  }
+
+  @override
+  String mintItemId() => _items.doc().id;
+
+  @override
+  Future<void> sendPhoto({
+    required String coupleId,
+    required String senderId,
+    required String itemId,
+    required String mediaUrl,
+    String? caption,
+  }) {
+    // `set` on the pre-minted id, not `add`: the object is already at a path
+    // derived from this id, and letting Firestore choose a different one would
+    // orphan it immediately.
+    return _items
+        .doc(itemId)
+        .set(
+          itemCreatePayload(
+            PhotoMessage(
+              id: itemId,
+              senderId: senderId,
+              createdAt: DateTime.now(),
+              mediaUrl: mediaUrl,
+              caption: caption,
+            ),
+            coupleId: coupleId,
+          ),
+        );
   }
 
   @override

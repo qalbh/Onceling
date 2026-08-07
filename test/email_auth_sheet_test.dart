@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:couple_app/common/providers.dart';
 import 'package:couple_app/features/auth/auth_service.dart';
 import 'package:couple_app/features/auth/screens/sign_in_screen.dart';
+import 'package:couple_app/features/auth/widgets/auth_buttons.dart';
 import 'package:couple_app/features/auth/widgets/email_auth_sheet.dart';
 import 'package:couple_app/theme/app_theme.dart';
 
@@ -63,7 +64,7 @@ Future<void> pumpSheet(WidgetTester tester, FakeAuthService service) async {
       child: MaterialApp(theme: AppTheme.light(), home: const SignInScreen()),
     ),
   );
-  await tester.tap(find.text('Use email or phone'));
+  await tester.tap(find.text('Sign in with email'));
   await tester.pumpAndSettle();
 }
 
@@ -196,10 +197,14 @@ void main() {
     expect(find.text('Something went wrong. Try again.'), findsNothing);
   });
 
-  testWidgets('Apple stays disabled, Google is wired (P2-19)', (tester) async {
-    // Rewritten at P2-19. This used to assert BOTH were disabled. Google now
-    // works; Apple still needs a paid Apple Developer account (**P2-20**), and
-    // a button that opens nothing is worse than one visibly unavailable.
+  testWidgets('two equal buttons, both live, no Apple anywhere', (
+    tester,
+  ) async {
+    // Rewritten twice. At P2-19 this asserted Apple was present but disabled;
+    // Apple is now absent entirely, because a permanently dead control on the
+    // entry screen reads as broken rather than pending. What replaced that
+    // assertion is the sibling check below: the failure worth catching now is
+    // one button quietly becoming primary again.
     final auth = _RecordingAuth();
     // A real viewport: at 800x600 these buttons fall below the fold and taps
     // silently miss, which the sheet helper already learned the hard way.
@@ -213,25 +218,81 @@ void main() {
       ),
     );
 
-    final apple = tester.widget<FilledButton>(
-      find.ancestor(
-        of: find.text('Continue with Apple'),
-        matching: find.byType(FilledButton),
-      ),
-    );
-    final google = tester.widget<OutlinedButton>(
-      find.ancestor(
-        of: find.text('Continue with Google'),
-        matching: find.byType(OutlinedButton),
-      ),
-    );
+    expect(find.textContaining('Apple'), findsNothing);
+    // No FilledButton on the screen at all: that was Apple's treatment, and it
+    // is what "one of them is primary" would look like if it came back.
+    expect(find.byType(FilledButton), findsNothing);
 
-    expect(apple.onPressed, isNull, reason: 'P2-20 has not wired Apple');
-    expect(google.onPressed, isNotNull, reason: 'P2-19 wired Google');
+    final buttons = tester
+        .widgetList<OutlinedButton>(find.byType(OutlinedButton))
+        .toList();
+    expect(buttons, hasLength(2), reason: 'Google and email, nothing else');
+    for (final button in buttons) {
+      expect(button.onPressed, isNotNull, reason: 'neither is a dead control');
+    }
+
+    // Siblings: same widget, so same shape, height and weight by construction.
+    expect(find.byType(AuthButton), findsNWidgets(2));
 
     await tester.tap(find.text('Continue with Google'));
     await tester.pumpAndSettle();
     expect(auth.calls, contains('signInWithGoogle'));
+  });
+
+  testWidgets('the email button opens the sheet', (tester) async {
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [authServiceProvider.overrideWithValue(_RecordingAuth())],
+        child: MaterialApp(theme: AppTheme.light(), home: const SignInScreen()),
+      ),
+    );
+
+    await tester.tap(find.text('Sign in with email'));
+    await tester.pumpAndSettle();
+    expect(find.byType(EmailAuthSheet), findsOneWidget);
+  });
+
+  testWidgets('both buttons survive 200% text scale at 360dp', (tester) async {
+    // Two equal buttons stack differently from one primary and one secondary:
+    // the pair is taller than the old primary+secondary+text-link, and at 200%
+    // each label can wrap to two lines. The old fixed `SizedBox(height: 58)`
+    // clipped here, which is why AuthButton sets a MINIMUM height instead.
+    tester.view.physicalSize = const Size(360 * 3.0, 800 * 3.0);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [authServiceProvider.overrideWithValue(_RecordingAuth())],
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(2.0)),
+            child: const SignInScreen(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The screen scrolls, so nothing is expected to fit — but nothing may
+    // overflow, and both labels must still be laid out and reachable.
+    expect(tester.takeException(), isNull);
+    expect(find.text('Continue with Google'), findsOneWidget);
+    expect(find.text('Sign in with email'), findsOneWidget);
+
+    for (final button in find.byType(AuthButton).evaluate()) {
+      final size = tester.getSize(find.byWidget(button.widget));
+      expect(
+        size.height,
+        greaterThanOrEqualTo(58.0),
+        reason: 'the minimum must hold, and grow rather than clip',
+      );
+      expect(size.width, lessThanOrEqualTo(360.0));
+    }
   });
 
   testWidgets('a cancelled Google sign-in shows no error', (tester) async {

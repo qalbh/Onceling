@@ -488,12 +488,57 @@ there is data.
       in the future, and bound how far back it may be set. Until it exists the
       anniversary is whatever the pairing date was, and a couple with a real earlier
       date has no way to say so.
-- [ ] **P2-13** Photo upload to Cloud Storage. *Enable the Storage emulator first —
-      until it is on, Functions calls to Cloud Storage hit the real dev bucket.*
-      *The compose sheet's "Add photo" chip is still a no-op after **P2-12** — the only
-      item type the client cannot write. `PhotoMessage`, its mapper branch and its
-      `itemKeysFor('photo')` rule already exist and are tested, so this is the upload
-      and the `mediaUrl` write, not the model.*
+- [x] **P2-13** Photo upload to Cloud Storage.
+      *Storage emulator enabled first (port 9199, `storage.rules` registered), so
+      nothing in this task ever addressed the real dev bucket.*
+      ***Compression: 1600px long edge, quality 80.*** *The feed renders a photo at
+      ~84% of the bubble width — about 300dp, so ~900px at 3x — and full-screen is at
+      most the device's own resolution. 1600 covers both with room for a tablet or a
+      future zoom. Quality 80 is the knee of the JPEG curve, past which bytes climb
+      faster than anything visible improves. A 3-8MB camera photo lands at 200-500KB.
+      Re-encoding also normalises HEIC to JPEG, which is what lets `storage.rules`
+      check for exactly one content type.*
+      ***Order: UPLOAD FIRST, then write the item.*** *Both orders leave a mess and
+      they are not the same mess. Item-first means a failed upload leaves a message
+      whose `mediaUrl` points at nothing — visible to both people, permanent (there is
+      no delete-a-message feature), unfixable by the sender. Upload-first means a
+      failed item write leaves an object nobody references: invisible, and reclaimable
+      **because the id is minted before either write**, so the object is at
+      `couples/{coupleId}/photos/{itemId}.jpg` whether or not the document arrives.
+      Storage and Firestore cannot share a transaction, so the orphan cannot be
+      designed away — only pointed in the less harmful direction.*
+      ***The orphan is reclaimed by PREFIX, not by walking items.*** *`sweepCouple`
+      deletes all of `couples/{coupleId}/photos/`. An item-driven deletion would visit
+      exactly the objects that are NOT orphans and miss the entire orphan set. Brief
+      §10 and Q5 promise erasure, not erasure-of-the-database — photos left in a
+      bucket after a couple asks to be forgotten is the same broken promise as leaving
+      the rows. The photo pass runs before the couple document (the completion marker)
+      and swallows its own errors, so a Storage outage cannot abort a Firestore
+      erasure already in progress; the trigger's `retry: true` runs it again.*
+      ***Secrets stay text-only, deliberately.*** *A secret photo cannot honour the one
+      promise a secret makes. **P3-01** deletes a `secretBodies` DOCUMENT — a Firestore
+      write inside a transaction. A Storage object is a second system it cannot reach
+      in the same operation, so "really deleted, from the server" would become two
+      writes with a gap, at the exact moment the promise matters most. Worse, a
+      download URL already issued can sit in the recipient's image cache after the
+      object is gone. Attaching a photo therefore leaves secret mode in the compose
+      sheet, and the Secret chip is hidden rather than disabled — P2-42's lesson.*
+      *Client: `PhotoUploadService` (pick/compress/upload, `PhotoUploader` interface
+      for tests), `PhotoSendController` (Riverpod, because progress outlives the sheet
+      that started it), `PhotoUploadBanner` on the feed. `_PhotoWell` renders a real
+      `Image.network` with all three P2-15 states in one fixed footprint, so the bubble
+      does not resize when an image resolves.*
+      *Platform: `NSCameraUsageDescription` and `NSPhotoLibraryUsageDescription` added
+      to Info.plist — without them iOS terminates rather than prompting — and `CAMERA`
+      to the Android manifest. No `READ_MEDIA_IMAGES`: the system photo picker returns
+      one granted URI, and asking for the whole library to send one picture is the
+      wrong trade.*
+      ***NOT DEPLOYED — blocked, not skipped.*** *`firebase deploy --only storage`
+      fails: "Firebase Storage has not been set up on project qalb-coupleapp-dev." It
+      needs a one-time **Get Started** in the console to provision a bucket, which is
+      an owner action. Rules are written, registered in `firebase.json` and green
+      against the emulator; they have never reached dev. See **D-26** for what that
+      leaves unproven.*
 - [x] **P2-14** Migrate named routes → `go_router` with a single auth redirect
       *`resolveRedirect()` in `lib/common/app_router.dart` is the whole gate, a
       pure function: loading → splash (never a sign-in flash), signed-in with no
@@ -617,10 +662,15 @@ there is data.
       has shipped.** Guideline 4.8 makes it mandatory once a third-party social
       sign-in is offered, so this blocks **P4-07** and nothing else: Android ships
       without it, and the simulators test without it.
-      *Needs a paid Apple Developer account.*
-      — required by App Store Review Guideline 4.8 once
-      Google sign-in ships. Needs a paid Apple Developer Program membership for the
-      Services ID and key. The sign-in screen already has the button.
+      *Needs a paid Apple Developer Program membership for the Services ID and key.*
+      ***The button is gone from the UI (P2-42), so this is now purely a submission
+      gate rather than dead UI.*** *It shipped as a permanently disabled control, which
+      was the wrong call: on the first screen a user ever sees, a dead button does not
+      read as "coming soon", it reads as broken software. Removing it changes nothing
+      about the obligation — Guideline 4.8 still makes Sign in with Apple mandatory for
+      iOS the moment Google sign-in ships there, and this still blocks **P4-07**.
+      When the account exists, the button comes back: `AuthButton` is already the
+      shared treatment, so it is one more instance and no restyling.*
 - [x] **P2-21** Emulator host per platform.
       *`EmulatorHost` resolves it: `localhost` for iOS simulators and desktop,
       `10.0.2.2` for the Android emulator, and a `--dart-define=EMULATOR_HOST=<ip>`
@@ -705,6 +755,24 @@ there is data.
       wrong one while everything looks fine is the entire failure class here. Reads
       either `[backend] emulator at <host> (auth 9099, firestore 8080, functions 5001)`
       or `[backend] REAL FIREBASE — dev project, no emulator`.*
+- [x] **P2-42** Sign-in screen: remove the Apple button, two equal options.
+      *UI only. Apple is deleted rather than disabled (**P2-20** has the reasoning).
+      What remains is "Continue with Google" and "Sign in with email", both rendered by
+      one `AuthButton` — **so they are siblings by construction, not by two styles kept
+      in agreement.** Neither is filled: making one primary would be a recommendation
+      we do not mean, since neither is the option we would rather someone picked.*
+      *`PrimaryAuthButton` is deleted — it only ever rendered Apple.
+      `UnderlinedTextButton` is deleted too: it was the old text-link email action and
+      nothing else used it. `SecondaryAuthButton` became `AuthButton`, because
+      "secondary" names a hierarchy that no longer exists.*
+      ***The fixed `SizedBox(height: 58)` had to go.*** *Two equal buttons stack taller
+      than the old primary + secondary + text link, and at 200% text scale each label
+      can wrap to two lines — the fixed box clipped. `AuthButton` sets a minimum height
+      instead and grows. A test pins it at 360dp × 200%.*
+      *`AuthButton` takes an optional leading `icon`, unused for now. **There is no
+      Google logo mark to keep** — `assets/images/` holds only a README and the button
+      has always been text-only. An approximated Google "G" is worse than none, so the
+      slot is there and the official asset drops straight in.*
 
 - [ ] **P2-22** Replace the duck-typed `toDate()` in `feed_item_mapper.dart` with a
       real `Timestamp` cast now that `cloud_firestore` has landed. Update mapper tests.
@@ -1220,6 +1288,36 @@ Non-blocking. Fix when convenient.
       `adb reverse` tunnels to the phone's own loopback, which works once
       `automaticHostMapping` is off (**P2-21**). So the revert is free whenever USB is
       available, and should be the default posture off a trusted network.
+- [x] **D-26** **Photo immutability was NOT enforced, on real Firebase, until it was
+      measured.** `allow update: if false` never fires: both the emulator and dev
+      evaluate a write to an existing path against `create`, so the update rule is
+      unreachable. Dev *accepted* a sender overwriting a delivered photo. Fixed by
+      adding `resource == null` to the create rule; re-measured on dev — overwrite
+      rejected, fresh upload accepted.
+      ***The lesson is about the shape of the evidence, not about Storage.*** *The
+      original rule read correctly, passed review, and scored 4/5 in the audit. The
+      emulator could not exercise it, so it was recorded as "correct by the docs,
+      unproven locally" — which sounded like caution and was actually a guess. It took
+      one real request to show the rule had never worked. **A rule nobody has fired in
+      anger is a hypothesis.***
+      *Residual, both still true and both bounded: content type is client-declared
+      rather than sniffed (blast radius is one couple's own 5MB objects, readable by
+      its two members), and nothing caps the NUMBER of objects a member may upload —
+      rules cannot count, so that needs App Check or a Function-side quota.*
+      *Cost of the fix: the emulator reports a non-null `resource` for brand-new
+      objects, so the guard refuses every legitimate upload there. Three tests in
+      `storage_rules.test.mjs` now assert the EMULATOR's behaviour with the divergence
+      spelled out, and a structural test asserts the guard is still in the file —
+      because deleting it would make the emulator suite greener and the product wrong.*
+- [ ] **D-27** `rules-tests/storage_rules.test.mjs` uses the DEFAULT project namespace,
+      breaking CLAUDE.md's one-namespace-per-file rule, and it has to. The Storage
+      emulator resolves `firestore.get()` against the emulator's default project, not
+      the project the test client uses — so a profile seeded in a private namespace is
+      invisible to the membership rule that must read it. **The signature is worth
+      recognising: every positive case fails and every negative case passes**, because
+      deny-by-evaluation-error is indistinguishable from deny-by-rule. Cost: this
+      file's `clearFirestore()` wipes the device seed. The other three rules files keep
+      their own namespaces, so no test-to-test collision arises.
 - [ ] **D-15** Feed pagination is one growing `limit`, so page N re-delivers the whole
       window: N pages cost 30+60+90+… document reads, quadratic in pages. Chosen at
       **P2-12** so every page stays live and a reaction on an old message updates in

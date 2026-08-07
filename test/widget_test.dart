@@ -35,16 +35,20 @@ void main() {
     expect(find.text('PRIVATE SPACE'), findsOneWidget);
     expect(find.text('Onceling'), findsOneWidget);
     expect(find.text('Where two become one story.'), findsOneWidget);
-    expect(find.text('Continue with Apple'), findsOneWidget);
     expect(find.text('Continue with Google'), findsOneWidget);
-    expect(find.text('Use email or phone'), findsOneWidget);
+    expect(find.text('Sign in with email'), findsOneWidget);
     expect(find.text('No audience. Just us.'), findsOneWidget);
+    // Apple is gone, not disabled. A dead control on the first screen a user
+    // sees reads as broken software, and P2-20 cannot be built without a paid
+    // Apple Developer account. The obligation is unchanged — Guideline 4.8
+    // still requires it for iOS once Google ships there.
+    expect(find.textContaining('Apple'), findsNothing);
   });
 
-  testWidgets('"Use email or phone" opens the email sheet', (tester) async {
+  testWidgets('"Sign in with email" opens the email sheet', (tester) async {
     await pumpApp(tester);
 
-    await tester.tap(find.text('Use email or phone'));
+    await tester.tap(find.text('Sign in with email'));
     await tester.pumpAndSettle();
 
     expect(find.byType(EmailAuthSheet), findsOneWidget);

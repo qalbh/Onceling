@@ -67,7 +67,7 @@ void main() {
     );
   }
 
-  /// A real device viewport. At the default 800x600 the "Use email or phone"
+  /// A real device viewport. At the default 800x600 the "Sign in with email"
   /// button falls below the fold and taps silently miss it — that cost a
   /// misdiagnosis once.
   void useDeviceView(WidgetTester tester) {
@@ -90,7 +90,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(EmailAuthSheet), findsNothing);
-    await tester.tap(find.text('Use email or phone'));
+    await tester.tap(find.text('Sign in with email'));
     await tester.pumpAndSettle();
     expect(find.byType(EmailAuthSheet), findsOneWidget);
 
@@ -168,7 +168,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Use email or phone'));
+    await tester.tap(find.text('Sign in with email'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Create an account instead'));
     await tester.pumpAndSettle();

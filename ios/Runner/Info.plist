@@ -77,5 +77,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Onceling uses the camera so you can send a photo to your person.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Onceling needs your photo library so you can share a picture with your person.</string>
 </dict>
 </plist>

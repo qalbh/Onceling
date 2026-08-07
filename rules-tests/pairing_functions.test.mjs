@@ -35,6 +35,22 @@ import { assertPairingInvariant } from "./pairing_invariant.mjs";
 // Point the admin SDK it initialises at the emulator first.
 process.env.FIRESTORE_EMULATOR_HOST ??= "127.0.0.1:8080";
 process.env.GCLOUD_PROJECT ??= "qalb-coupleapp-dev";
+// **P2-13.** The sweep now deletes Storage objects too, so the admin SDK it
+// initialises has to reach the Storage emulator as well — without this the
+// photo pass would silently hit the real dev bucket, which is precisely the
+// hazard CLAUDE.md flagged while the emulator was missing.
+process.env.FIREBASE_STORAGE_EMULATOR_HOST ??= "127.0.0.1:9199";
+process.env.STORAGE_EMULATOR_HOST ??= "http://127.0.0.1:9199";
+// A deployed function's `initializeApp()` reads its default bucket out of
+// FIREBASE_CONFIG. Nothing sets that here, so `getStorage().bucket()` throws —
+// and because the photo pass swallows its errors to protect the Firestore
+// erasure, it would throw INVISIBLY and the sweep would report success while
+// deleting nothing. Supplying it makes this harness match the runtime rather
+// than testing a differently-configured app.
+process.env.FIREBASE_CONFIG ??= JSON.stringify({
+  projectId: "qalb-coupleapp-dev",
+  storageBucket: "qalb-coupleapp-dev.appspot.com",
+});
 // Resolve from functions/ — firebase-admin is its dependency, not ours.
 const requireFromFunctions = createRequire(
   new URL("../functions/package.json", import.meta.url),
@@ -43,7 +59,9 @@ const pairing = requireFromFunctions("./lib/pairing.js");
 const { getFirestore } = requireFromFunctions("firebase-admin/firestore");
 const profile = requireFromFunctions("./lib/profile.js");
 const unpairModule = requireFromFunctions("./lib/unpair.js");
+const { getStorage } = requireFromFunctions("firebase-admin/storage");
 const adminDb = () => getFirestore();
+const adminBucket = () => getStorage().bucket("qalb-coupleapp-dev.appspot.com");
 
 const PROJECT = "qalb-coupleapp-dev";
 
@@ -903,6 +921,87 @@ describe("unpair — phase 2, the sweep (P2-36)", () => {
     // The neighbour is intact.
     assert.equal(items.filter((i) => i.coupleId === "OTHER").length, 3);
     assert.equal((await readDoc("couples/OTHER")) !== undefined, true);
+  });
+
+  test("removes the couple's Storage objects alongside its items", async () => {
+    // **The promise this protects.** Brief §10 and Q5 say erasure, not
+    // erasure-of-the-database. A bucket still holding a couple's photographs
+    // after they have asked to be forgotten is the same broken promise as
+    // leaving the rows behind.
+    await writeDoc("couples/SWEEPPIC", {
+      memberIds: ["x", "y"],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+
+    const bucket = adminBucket();
+    const ours = "couples/SWEEPPIC/photos/item-1.jpg";
+    const orphan = "couples/SWEEPPIC/photos/never-got-a-document.jpg";
+    const neighbour = "couples/OTHERPIC/photos/item-1.jpg";
+
+    // Only the first has an item pointing at it. The second is the orphan the
+    // upload-then-write ordering can leave behind, and it is the whole reason
+    // the sweep deletes by PREFIX rather than by walking items: an item-driven
+    // deletion would visit the first and miss the second.
+    await writeDoc("items/SWEEPPIC-item-1", {
+      coupleId: "SWEEPPIC",
+      senderId: "x",
+      type: "photo",
+      mediaUrl: "http://example.test/item-1.jpg",
+      createdAt: new Date(),
+    });
+
+    for (const path of [ours, orphan, neighbour]) {
+      await bucket.file(path).save(Buffer.from([0xff, 0xd8, 0xff]), {
+        contentType: "image/jpeg",
+      });
+    }
+
+    const result = await unpairModule.sweepCouple(adminDb(), "SWEEPPIC");
+
+    assert.equal((await bucket.file(ours).exists())[0], false);
+    assert.equal(
+      (await bucket.file(orphan).exists())[0],
+      false,
+      "an object with no item must still be erased",
+    );
+    assert.equal(
+      (await bucket.file(neighbour).exists())[0],
+      true,
+      "another couple's photos must survive untouched",
+    );
+    assert.equal(result.photos, 2);
+
+    // Cleanup: the neighbour was deliberately left behind.
+    await bucket.file(neighbour).delete();
+  });
+
+  test("a photo sweep failure does not abort the Firestore erasure", async () => {
+    // The photo pass swallows its own errors on purpose. This runs inside the
+    // sweep, and a Storage outage must not strand a couple half-erased with
+    // the couple document already gone — the document is the completion
+    // marker and the retry's only handle.
+    await writeDoc("couples/SWEEPFAIL", {
+      memberIds: ["x", "y"],
+      streakCount: 0,
+      createdAt: new Date(),
+    });
+    await seedHistory("SWEEPFAIL", 2);
+
+    const realBucket = getStorage().bucket;
+    getStorage().bucket = () => {
+      throw new Error("simulated Storage outage");
+    };
+    try {
+      await unpairModule.sweepCouple(adminDb(), "SWEEPFAIL");
+    } finally {
+      getStorage().bucket = realBucket;
+    }
+
+    // Firestore erasure completed regardless.
+    const items = await readAll("items");
+    assert.equal(items.filter((i) => i.coupleId === "SWEEPFAIL").length, 0);
+    assert.equal(await readDoc("couples/SWEEPFAIL"), undefined);
   });
 
   test("an interrupted sweep is completed by a re-run", async () => {

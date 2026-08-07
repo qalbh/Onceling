@@ -1,9 +1,57 @@
 import { getApps, initializeApp } from "firebase-admin/app";
 import { FieldValue, Firestore, getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 
 if (getApps().length === 0) initializeApp();
+
+/**
+ * The couple's photo prefix in Cloud Storage (**P2-13**).
+ *
+ * **Mirrors `PhotoUploadService.pathFor` in the Dart client.** Dart and
+ * TypeScript cannot share a constant, so this is a hand-kept mirror in the same
+ * shape as the `pairingCodeAlphabet` and item-payload mirrors already recorded
+ * as D-17. If they drift, photos survive erasure — which is the one failure
+ * this whole path exists to prevent.
+ *
+ * @param {string} coupleId the couple
+ * @return {string} the object prefix, with a trailing slash
+ */
+export function photoPrefix(coupleId: string): string {
+  return `couples/${coupleId}/photos/`;
+}
+
+/**
+ * Deletes every Storage object belonging to a couple.
+ *
+ * **By prefix, not by walking items and deleting each `mediaUrl`.** That
+ * distinction is the entire point. An upload that succeeded while its item
+ * write failed leaves an object no document references (see
+ * `PhotoUploadService` for why that ordering is the safer one) — and an
+ * item-driven deletion would visit exactly the objects that are NOT orphans,
+ * missing the whole orphan set. A prefix delete removes linked and orphaned
+ * objects alike.
+ *
+ * Failures are logged and swallowed rather than thrown. This runs inside the
+ * sweep, and a Storage outage must not stop the Firestore erasure that is
+ * already in progress; the couple document stays until the end, so a failed
+ * pass is discoverable and the trigger's `retry: true` runs it again.
+ *
+ * @param {string} coupleId the couple whose photos to erase
+ * @return {Promise<number>} how many objects were deleted
+ */
+export async function sweepCouplePhotos(coupleId: string): Promise<number> {
+  try {
+    const bucket = getStorage().bucket();
+    const [files] = await bucket.getFiles({ prefix: photoPrefix(coupleId) });
+    await Promise.all(files.map((file) => file.delete()));
+    return files.length;
+  } catch (err) {
+    console.error(`[P2-13] photo sweep failed for ${coupleId}: ${err}`);
+    return 0;
+  }
+}
 
 /** Marks a couple as separated but not yet swept. */
 export const STATUS_UNPAIRED = "unpaired";
@@ -132,7 +180,7 @@ export const unpair = onCall(async (request) => {
 export async function sweepCouple(
   db: Firestore,
   coupleId: string,
-): Promise<{ items: number }> {
+): Promise<{ items: number; photos: number }> {
   let deleted = 0;
 
   for (;;) {
@@ -181,9 +229,19 @@ export async function sweepCouple(
     if (orphans.size < SWEEP_BATCH) break;
   }
 
+  // Photos, before the couple document and after the items.
+  //
+  // **Before the couple document** for the same reason everything else is:
+  // that document is the completion marker, and deleting it while objects
+  // remain would strand them with nothing to drive a retry. Brief §10 and Q5
+  // promise erasure, not erasure-of-the-database — a bucket full of a couple's
+  // photographs after they have asked to be forgotten is the same broken
+  // promise as leaving the rows.
+  const photos = await sweepCouplePhotos(coupleId);
+
   // Last, so an interrupted sweep stays discoverable and resumable.
   await db.doc(`couples/${coupleId}`).delete();
-  return { items: deleted };
+  return { items: deleted, photos };
 }
 
 /**
@@ -218,7 +276,8 @@ export const sweepUnpairedCouple = onDocumentUpdated(
     const result = await sweepCouple(getFirestore(), coupleId);
     console.log(
       `[P2-36] swept couple ${coupleId}: ${result.items} item(s) and their ` +
-        "secret bodies deleted, couple document removed.",
+        `secret bodies deleted, ${result.photos} photo(s) removed from ` +
+        "Storage, couple document removed.",
     );
   },
 );
