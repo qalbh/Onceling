@@ -169,7 +169,8 @@ describe('P2-13 — photo writes', () => {
   });
 
   test('an OVERSIZED upload is rejected', async () => {
-    // Just over the 5 MB cap. The client compresses to ~200-500 KB; this is
+    // Just over the 5 MB cap. The client compresses to ~50-150 KB measured on
+    // device (SM-A325F, 2026-08-07); this is
     // what a modified client using the bucket as free storage looks like.
     const tooBig = new Uint8Array(5 * 1024 * 1024 + 1);
     await assertFails(

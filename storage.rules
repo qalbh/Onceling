@@ -35,11 +35,16 @@ service firebase.storage {
              && myCoupleId() == coupleId;
     }
 
-    // 5 MB. The client compresses to a 1600px long edge at quality 80, which
-    // lands around 200-500 KB, so this is roughly ten times the expected size
-    // — loose enough never to reject a legitimate photo, tight enough that a
-    // modified client cannot use the bucket as free storage. The cap is here
-    // rather than only in the app because the client is untrusted.
+    // 5 MB. The client compresses to a 1600px long edge at quality 80.
+    //
+    // **Measured on an SM-A325F (2026-08-07), not estimated:** a 4.5 MB camera
+    // capture came out at 132 KB and a gallery PNG at 53 KB, so the cap is
+    // roughly 40x the observed size — not the 10x this comment first claimed
+    // from an estimate of 200-500 KB. Both scenes were low-detail and a busy
+    // one lands higher, so the headroom is real but not as generous as 40x
+    // suggests. Loose enough never to reject a legitimate photo, tight enough
+    // that a modified client cannot use the bucket as free storage. The cap is
+    // here rather than only in the app because the client is untrusted.
     function withinSizeCap() {
       return request.resource.size < 5 * 1024 * 1024;
     }

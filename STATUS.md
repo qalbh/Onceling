@@ -1,6 +1,6 @@
 # Onceling — Status
 
-**Phase 3 of 4 · Last updated: 2026-08-05**
+**Phase 3 of 4 · Last updated: 2026-08-07**
 
 **Now:** P3-03 — milestone triggers (day 100, 365, 500, 1000)
 
@@ -533,12 +533,43 @@ there is data.
       to the Android manifest. No `READ_MEDIA_IMAGES`: the system photo picker returns
       one granted URI, and asking for the whole library to send one picture is the
       wrong trade.*
-      ***NOT DEPLOYED — blocked, not skipped.*** *`firebase deploy --only storage`
-      fails: "Firebase Storage has not been set up on project qalb-coupleapp-dev." It
-      needs a one-time **Get Started** in the console to provision a bucket, which is
-      an owner action. Rules are written, registered in `firebase.json` and green
-      against the emulator; they have never reached dev. See **D-26** for what that
-      leaves unproven.*
+      *Deployed to dev 2026-08-07, once Storage was provisioned on the project. It was
+      blocked before that: `firebase deploy --only storage` failed with "Firebase
+      Storage has not been set up", which needs a one-time **Get Started** in the
+      console. The first denial after enabling was transient propagation, not a rules
+      fault — worth remembering, because it looked exactly like a broken ruleset and
+      sent me hunting one. See **D-26** for the real bug it was masking.*
+      ***Verified on device 2026-08-07, SM-A325F, against dev.***
+      *Camera: permission starts `granted=false`, `pick()` raises the system prompt
+      ("Allow Onceling to take pictures and record video?"), granting flips it to
+      `granted=true`, the shutter returns to `MainActivity`, and `pick()` yields a real
+      file. **4.5 MB / 2400x3200 capture → 1200x1600 at 132 KB.** Also the first
+      on-device run of the `targetSize` fix, and it holds: the LONG edge is capped,
+      where the pre-fix code produced 2133x1600 from the same shape.*
+      ***That measurement corrected a number in two places.*** *The 200-500 KB estimate
+      was a guess from synthetic noise, which is adversarial for JPEG; a real
+      photograph compresses far better. `storage.rules` said the 5 MB cap was "roughly
+      ten times the expected size" — it is nearer 40x. Both comments now carry measured
+      figures and the caveat that a busy scene lands higher.*
+      *Gallery: the native sheet opens (`DocumentsUI` PickActivity via
+      `ACTION_GET_CONTENT`, not the newer photo picker the manifest comment names), a
+      selection returns, and it reaches the upload path. The selection was a PNG, which
+      incidentally proved the re-encode: 1080x2400 PNG → 53 KB JPEG, magic bytes
+      confirmed.*
+      ***Unpair sweep — owner-observed 2026-08-07, and only half of the claim.***
+      *The owner unpaired on the device and reported the couple's Storage prefix
+      showing empty in the console afterwards. **What that establishes:** the sweep ran
+      and reached Storage, so unpairing does not leave a couple's photographs behind —
+      brief §10 and Q5 hold at the Storage layer for objects that were there.
+      **What it does not establish:** whether any ORPHAN object — one with no item
+      document pointing at it — was present immediately before the unpair. Without
+      that, an item-driven sweep would have produced the same empty prefix, so the
+      observation cannot distinguish prefix-deletion from item-walking. **The orphan
+      half is the entire reason the sweep deletes by prefix, and it remains open.**
+      The test that settles it is in **D-28**.*
+      ***Still unverified:*** *a non-member read against a real bucket. Needs throwaway
+      accounts — checking it on the owner's own device would mean signing them out with
+      no way to sign them back in.*
 - [x] **P2-14** Migrate named routes → `go_router` with a single auth redirect
       *`resolveRedirect()` in `lib/common/app_router.dart` is the whole gate, a
       pure function: loading → splash (never a sign-in flash), signed-in with no
@@ -1309,6 +1340,35 @@ Non-blocking. Fix when convenient.
       `storage_rules.test.mjs` now assert the EMULATOR's behaviour with the divergence
       spelled out, and a structural test asserts the guard is still in the file —
       because deleting it would make the emulator suite greener and the product wrong.*
+- [ ] **D-28** **Prove the orphan half of the prefix-deletion decision on a real
+      bucket.** The sweep deletes `couples/{id}/photos/` wholesale rather than walking
+      items and deleting each `mediaUrl`, because an upload that succeeded while its
+      item write failed leaves an object no document references — and an item-driven
+      sweep would visit exactly the non-orphans and miss the entire orphan set. The
+      emulator covers this (`pairing_functions.test.mjs` seeds a linked object, an
+      orphan and a neighbour, and asserts 2 deleted with the neighbour intact). On dev
+      it is unproven: the owner's 2026-08-07 observation of an empty prefix is
+      consistent with prefix-deletion AND with item-walking, so it cannot tell them
+      apart.
+      **The test, on throwaway accounts, destroying nothing anyone cares about:**
+      1. Create two accounts on dev and pair them through the callables
+         (`ensureUserProfile`, `ensurePairingCode`, `requestPairing`,
+         `respondToPairing`) — the same sequence already scripted this session.
+      2. Send one photo the ordinary way, so the object AND its `items` document both
+         exist. Record the object path.
+      3. Write a second object directly to `couples/{id}/photos/orphan.jpg` with **no
+         item document** — the upload-succeeded-item-write-failed state, reproduced
+         deliberately rather than waited for.
+      4. Seed a THIRD couple with its own photo, untouched, as the neighbour control.
+         Without it a sweep that deleted the whole bucket would pass.
+      5. Unpair, wait for `sweepUnpairedCouple`.
+      6. Assert: both objects of the unpaired couple are gone **including the orphan**,
+         and the neighbour's survives.
+      Step 3 and step 6's orphan clause are the whole point; steps 2 and 4 exist so a
+      pass cannot be explained by "it deleted everything" or "it deleted the linked one
+      and stopped". Verification needs admin access to list the prefix — a capability
+      URL cannot serve, because a stale token returns 403 for a present object and an
+      absent one alike, which is how the first attempt at this failed.
 - [ ] **D-27** `rules-tests/storage_rules.test.mjs` uses the DEFAULT project namespace,
       breaking CLAUDE.md's one-namespace-per-file rule, and it has to. The Storage
       emulator resolves `firestore.get()` against the emulator's default project, not

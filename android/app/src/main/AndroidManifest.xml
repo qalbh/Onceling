@@ -8,8 +8,15 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
+    <!--
+      android:label is the PRODUCT name, not the package name. It is what a
+      person reads in the app drawer, in Android settings, and in permission
+      prompts: the camera dialog said "Allow couple_app to take pictures",
+      which is the Flutter scaffold default leaking into user-visible copy.
+      Identifiers stay brand neutral (CLAUDE.md); display names do not.
+    -->
     <application
-        android:label="couple_app"
+        android:label="Onceling"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
