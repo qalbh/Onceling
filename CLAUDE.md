@@ -152,6 +152,22 @@ The client is untrusted. Assume a modified client.
   validator on that path, and it guarantees correctness by construction — it writes a
   fixed literal, so no caller-supplied key reaches the document. Any new auth path
   must go through `ensureUserProfile`, never a direct client write.
+- **Every new field on a client-writable document must be reconciled with that
+  collection's `hasOnly` allowance in the same change.** Firestore evaluates
+  whole-document writes, so a field the rule does not name is either rejected on a
+  legitimate edit or — worse — silently writable. This has happened once:
+  `notificationPreviews` (**P3-04**) shipped with `notify.ts` reading a field the
+  rules did not admit, so the "setting" was unreachable and previews permanently
+  off — caught by that task's own rules audit, which is the only reason it did not
+  reach the next one. The audit must not be the only net.
+
+  When adding a field, state explicitly which of these it is: server-owned and
+  rejected on any client write (pinned with `fieldUnchanged`, or on a collection
+  closed to clients entirely), or client-owned and admitted with a type and a
+  bound. There is no third option, and leaving it unstated is how the case above
+  happened. The P3-03 pair is the worked example: `milestoneSeen` client-owned and
+  admitted on `users`; `milestoneCelebrated` server-owned on `couples`, which
+  denies all client writes — stated in the rules comments, tested from both sides.
 - Any operation that must not double-apply (pairing, claiming, unpairing, one-time
   reveals) is a transaction or a callable function. Idempotent, safe against double
   taps and races.
