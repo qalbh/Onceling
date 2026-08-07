@@ -54,6 +54,7 @@ const _typePhoto = 'photo';
 const _typeEmoji = 'emoji';
 const _typeStatus = 'status';
 const _typeSecret = 'secret';
+const _typeMilestone = 'milestone';
 
 const _stateSealed = 'sealed';
 const _stateOpening = 'opening';
@@ -106,6 +107,12 @@ FeedItem fromFirestore(String id, Map<String, dynamic> data) {
       icon: data['emoji'] as String?,
       reactions: reactions,
     ),
+    _typeMilestone => MilestoneMessage(
+      id: id,
+      createdAt: createdAt,
+      day: (data['day'] as num?)?.toInt() ?? 0,
+      reactions: reactions,
+    ),
     _typeSecret => SecretMessage(
       id: id,
       senderId: senderId,
@@ -155,6 +162,15 @@ Map<String, dynamic> toFirestore(FeedItem item) {
       'type': _typeStatus,
       'body': text,
       'emoji': icon,
+    },
+    // Round-trip completeness only: the client never writes one of these. The
+    // real document is authored in TypeScript by the tick, without a senderId
+    // at all; the '' this carries is [MilestoneMessage]'s no-author sentinel
+    // and must never reach a write path.
+    MilestoneMessage(:final day) => {
+      ...common,
+      'type': _typeMilestone,
+      'day': day,
     },
     SecretMessage(
       :final duration,

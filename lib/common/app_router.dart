@@ -8,6 +8,8 @@ import 'package:go_router/go_router.dart';
 import '../features/auth/screens/sign_in_screen.dart';
 import '../features/feed/models/feed_item.dart';
 import '../features/feed/screens/feed_screen.dart';
+import '../features/milestone/milestone_moment.dart';
+import '../features/milestone/screens/milestone_screen.dart';
 import '../features/pairing/pairing_celebration.dart';
 import '../features/pairing/screens/paired_screen.dart';
 import '../features/onboarding/screens/how_secrets_work_screen.dart';
@@ -24,6 +26,7 @@ abstract final class AppRoutes {
   static const signIn = '/';
   static const pairing = '/pairing';
   static const paired = '/paired';
+  static const milestone = '/milestone';
   static const feed = '/feed';
   static const settings = '/settings';
   static const secretReveal = '/secret-reveal';
@@ -53,6 +56,7 @@ String? resolveRedirect({
   required String currentLocation,
   bool justPaired = false,
   bool hasSeenOnboarding = true,
+  bool milestonePending = false,
 }) {
   // The branch ORDER here is load-bearing, not stylistic.
   //
@@ -84,7 +88,15 @@ String? resolveRedirect({
     (false, true) when coupleId == null => AppRoutes.pairing,
     // justPaired is only ever true when this session watched coupleId appear,
     // so a cold start on a paired account falls straight through to the feed.
-    (false, true) => justPaired ? AppRoutes.paired : AppRoutes.feed,
+    //
+    // **P3-03** sits after it: a pairing moment and a milestone moment cannot
+    // both be owed today (a couple paired today is on day zero), but if P2-39's
+    // backdating ever makes it possible, the pairing moment is the one that
+    // must not lose — it is brief §11's activation instant, and the milestone
+    // will still be pending when it clears.
+    (false, true) when justPaired => AppRoutes.paired,
+    (false, true) when milestonePending => AppRoutes.milestone,
+    (false, true) => AppRoutes.feed,
   };
 
   // Sub-locations of the wanted area stay put: being at /settings while the
@@ -106,6 +118,7 @@ String? resolveRedirect({
     },
     // The moment is a destination in its own right, not a layer over the feed.
     AppRoutes.paired => const {AppRoutes.paired},
+    AppRoutes.milestone => const {AppRoutes.milestone},
     final w => {w},
   };
 
@@ -125,6 +138,10 @@ class _GateNotifier extends ChangeNotifier {
     ref.listen(currentUserProvider, (_, _) => notifyListeners());
     // Acknowledging the pairing moment is what releases the gate to the feed.
     ref.listen(pairingCelebrationProvider, (_, _) => notifyListeners());
+    // Same mechanism for the milestone moment (**P3-03**). Because this
+    // watches live state, a couple whose midnight passes while the app is
+    // foregrounded gets the moment then, not just on the next cold start.
+    ref.listen(milestoneMomentProvider, (_, _) => notifyListeners());
   }
 }
 
@@ -142,6 +159,7 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       return resolveRedirect(
         justPaired: ref.read(pairingCelebrationProvider) != null,
+        milestonePending: ref.read(milestoneMomentProvider) != null,
         hasSeenOnboarding: profile.valueOrNull?.hasSeenOnboarding ?? true,
         isLoadingAuth: auth.isLoading,
         isSignedIn: user != null,
@@ -169,6 +187,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, _) => const HowSecretsWorkScreen(),
       ),
       GoRoute(path: AppRoutes.paired, builder: (_, _) => const PairedScreen()),
+      GoRoute(
+        path: AppRoutes.milestone,
+        builder: (_, _) => const MilestoneScreen(),
+      ),
       GoRoute(path: AppRoutes.feed, builder: (_, _) => const FeedScreen()),
       GoRoute(
         path: AppRoutes.settings,

@@ -359,3 +359,41 @@ describe("P3-04 — pushToken is client-owned", () => {
     );
   });
 });
+
+describe("P3-03 — milestoneSeen is the viewer's own record", () => {
+  test("the owner records the milestone they have seen", async () => {
+    await seedProfile(ALICE);
+    await assertSucceeds(
+      updateDoc(doc(db(ALICE), "users", ALICE), { milestoneSeen: 100 }),
+    );
+  });
+
+  test("nobody can write another person's milestoneSeen", async () => {
+    // The once-PER-PARTNER guarantee lives on this line: if Bob could mark
+    // Alice's moment as seen, Alice would simply never get it.
+    await seedProfile(ALICE);
+    await assertFails(
+      updateDoc(doc(db(BOB), "users", ALICE), { milestoneSeen: 100 }),
+    );
+  });
+
+  test("wrong types are rejected", async () => {
+    await seedProfile(ALICE);
+    await assertFails(
+      updateDoc(doc(db(ALICE), "users", ALICE), { milestoneSeen: "100" }),
+    );
+    await assertFails(
+      updateDoc(doc(db(ALICE), "users", ALICE), { milestoneSeen: true }),
+    );
+  });
+
+  test("out-of-range values are rejected", async () => {
+    await seedProfile(ALICE);
+    await assertFails(
+      updateDoc(doc(db(ALICE), "users", ALICE), { milestoneSeen: -1 }),
+    );
+    await assertFails(
+      updateDoc(doc(db(ALICE), "users", ALICE), { milestoneSeen: 100001 }),
+    );
+  });
+});

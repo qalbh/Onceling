@@ -5,6 +5,7 @@ import '../../../common/time_format.dart';
 import '../../../theme/theme_colors.dart';
 import '../../../theme/theme_glyphs.dart';
 import '../../pairing/couple_names.dart';
+import '../../milestone/milestone_copy.dart';
 import '../models/feed_item.dart';
 import 'feed_header.dart';
 import 'secret_card.dart';
@@ -37,6 +38,14 @@ class FeedItemView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (item case StatusNote(:final text, :final icon)) {
       return _StatusNoteView(text: text, icon: icon, onTap: onTapStatus);
+    }
+
+    // Centred like a status note, for the same reason stated the same way:
+    // it belongs to neither side of the thread. A milestone is the one item
+    // with no author at all, so mirroring it toward either partner would be
+    // claiming it for them.
+    if (item case MilestoneMessage(:final day)) {
+      return _MilestoneView(day: day);
     }
 
     final isMine = item.senderId == viewerId;
@@ -134,6 +143,7 @@ class FeedItemView extends ConsumerWidget {
         ),
       },
       StatusNote() => const SizedBox.shrink(),
+      MilestoneMessage() => const SizedBox.shrink(),
     };
   }
 
@@ -316,6 +326,48 @@ class _ReactionChip extends StatelessWidget {
       ),
       // A reaction is content someone sent, so it scales with text.
       child: Text(emoji, style: theme.textTheme.bodyLarge),
+    );
+  }
+}
+
+/// A milestone crossing, centred in the scrollback (**P3-03**).
+///
+/// Quieter than the full-screen moment on purpose: the moment is the
+/// celebration, this is the record of it. The feed shows the day and one line
+/// so scrolling back through a year of thread passes the milestones the way a
+/// photo album passes birthdays.
+class _MilestoneView extends StatelessWidget {
+  const _MilestoneView({required this.day});
+
+  final int day;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 32),
+      child: Column(
+        children: [
+          Glyph('\u{1F338}', size: context.glyphs.sealBadge),
+          const SizedBox(height: 6),
+          Text(
+            'Day $day',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.headlineMedium!.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            milestoneLine(day),
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleMedium!.copyWith(
+              color: context.palette.inkFaint,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

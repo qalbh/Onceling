@@ -99,7 +99,7 @@ export function notificationFor(
   }
 }
 
-interface Recipient {
+export interface Recipient {
   uid: string;
   token: string | null;
   previews: boolean;
@@ -137,13 +137,17 @@ async function partnerOf(
 
 /** Sends one notification, tolerating a dead token.
  *
+ * Exported since **P3-03**: the milestone path sends to both partners and
+ * lives in its own module, and duplicating the dead-token cleanup there would
+ * mean two places that must agree about what a dead token is.
+ *
  * @param {Firestore} db the admin Firestore handle
  * @param {Recipient} to who to notify
  * @param {NotificationCopy} copy the title and body
  * @param {Record<string, string>} data payload for in-app routing
  * @return {Promise<boolean>} whether it was delivered
  */
-async function send(
+export async function send(
   db: Firestore,
   to: Recipient,
   copy: NotificationCopy,

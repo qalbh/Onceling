@@ -37,7 +37,7 @@ service cloud.firestore {
                'displayName', 'avatarUrl', 'coupleId',
                'favoriteEmojis', 'accentColor', 'createdAt', 'pairingCode',
                'onboardingSeenAt', 'pushToken', 'pushTokenUpdatedAt',
-               'notificationPreviews'
+               'notificationPreviews', 'milestoneSeen'
              ])
              && data.keys().hasAll([
                   'displayName', 'avatarUrl', 'coupleId',
@@ -93,7 +93,20 @@ service cloud.firestore {
              // the code was claiming a choice the data layer did not allow.
              && (!('notificationPreviews' in data)
                  || data.notificationPreviews == null
-                 || data.notificationPreviews is bool);
+                 || data.notificationPreviews is bool)
+             // The highest milestone day this person has SEEN the full-screen
+             // moment for (**P3-03**). Client-writable like pushToken, and for
+             // the same shape of reason: it is a fact about this person's own
+             // viewing, the server cannot know it, and forging it costs the
+             // forger only their own celebration. What it can NOT forge is the
+             // milestone itself — `milestoneCelebrated` lives on the couple
+             // document, which is closed to client writes entirely.
+             // Bounded so it cannot become a free integer channel.
+             && (!('milestoneSeen' in data)
+                 || data.milestoneSeen == null
+                 || (data.milestoneSeen is int
+                     && data.milestoneSeen >= 0
+                     && data.milestoneSeen <= 100000));
     }
 
     // The caller's couple, read from their own profile.

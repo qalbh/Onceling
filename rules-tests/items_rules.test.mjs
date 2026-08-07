@@ -855,3 +855,50 @@ describe('P3-01 — a stamped secret is still a normal item', () => {
     );
   });
 });
+
+describe('P3-03 — milestone items are the server\'s testimony', () => {
+  test('a client cannot create one, even perfectly formed', async () => {
+    // The create enum deliberately excludes 'milestone'. Only the scheduled
+    // tick writes these, with the Admin SDK — a couple's history of
+    // milestones is the server's record, not something a member can author.
+    await assertFails(
+      setDoc(doc(db(ALICE), 'items', 'forged-milestone'), {
+        coupleId: OURS,
+        type: 'milestone',
+        day: 100,
+        reactions: {},
+        createdAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  test('members can REACT to one — it is still an item in their thread', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'items', 'ms-1'), {
+        coupleId: OURS,
+        type: 'milestone',
+        day: 100,
+        reactions: {},
+        createdAt: new Date(),
+      });
+    });
+    await assertSucceeds(
+      updateDoc(doc(db(ALICE), 'items', 'ms-1'), {
+        'reactions.alice': '🥰',
+      }),
+    );
+  });
+
+  test('a non-member cannot read it', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'items', 'ms-2'), {
+        coupleId: OURS,
+        type: 'milestone',
+        day: 100,
+        reactions: {},
+        createdAt: new Date(),
+      });
+    });
+    await assertFails(getDoc(doc(db(EVE), 'items', 'ms-2')));
+  });
+});

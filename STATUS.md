@@ -2,7 +2,7 @@
 
 **Phase 3 of 4 · Last updated: 2026-08-07**
 
-**Now:** P3-03 — milestone triggers (day 100, 365, 500, 1000)
+**Now:** P2-39 — setAnniversary, the settings edit path for M-10
 
 ---
 
@@ -197,6 +197,18 @@ Looks finished, backed by nothing. This is the real Phase 2 worklist.
       existed.*
 - [ ] **M-03** Pairing — `myCode = 'MK4Q7B'`, `_canPair` only checks `length == 6`
 - [ ] **M-04** Share link — toast stub → deep link generation and handling
+      *Deferred to the end of the phase. The domain `onceling.app` is owned but has no
+      hosting. Decisions already made: host on Hostinger, not Firebase Hosting — the
+      domain is registered there and one host is simpler than two. Serve
+      `/.well-known/assetlinks.json` for Android. Skip
+      `apple-app-site-association` for now: iOS is parked on the paid Apple Developer
+      account, and Hostinger serves extensionless files as `application/octet-stream`,
+      which iOS silently refuses to verify — a `ForceType application/json` rule in
+      `.htaccess` is the fix when it matters.*
+      *Also decided: the link needs a fallback page for someone who taps it without
+      the app installed. Minimal — what Onceling is, and a Play Store link. Not a
+      marketing site; that belongs with **P4-03** when there are screenshots worth
+      showing.*
 - [ ] **M-05** Secrets — `markOpened()` deletes client-side; must move to a Function
 - [x] **M-06** Streaks — hardcoded `47` in two places
       *Both gone: the feed header and the settings row read `streakProvider`, which
@@ -1080,11 +1092,66 @@ there is data.
       than 47 calendar days — grace days keep it alive without inflating it.*
       *No new index: the existing `coupleId` + `createdAt` composite covers the range
       query.*
-- [ ] **P3-03** Milestone triggers — day 100, 365, 500, 1000
+- [x] **P3-03** Milestone triggers — day 100, 365, 500, 1000
       *Unaffected by **Q2**'s forgiveness: milestones count days since
       `anniversaryDate` (**M-10**), not consecutive posting. They are anniversaries,
       a different register from a daily obligation, which is why they survive a
       forgiving streak unchanged.*
+      ***Detection rides P3-02's hourly tick*** *— a second sweep over `couples` would
+      double **D-20**'s read cost to learn nothing the first pass does not already
+      know. The check is pure arithmetic against the couple document that tick has
+      already read: zero extra reads until a milestone actually fires. Days elapsed
+      use `localDateKey`/`daysBetweenKeys`, the same helpers as the streak boundary,
+      so the two features cannot disagree about when a couple's day ticks over.*
+      ***Idempotency: `milestoneCelebrated` on the couple document*** *— a single
+      integer, the highest day already fired. One monotonic field rather than an
+      array, because the firing rule collapses to `crossed > celebrated` and the
+      backdate decision falls out of the same comparison. The check-and-set is a
+      transaction that also creates the feed item at a deterministic id
+      (`{coupleId}-milestone-{day}`), so a raced retry writes the SAME document
+      rather than a second one. Pushes go after the commit: a crash between the two
+      loses a push, never doubles a milestone. `couples` denies all client writes, so
+      the record is unforgeable.*
+      ***Backdated anniversaries (P2-39) fire the HIGHEST crossed milestone only.***
+      *Three years entered at once means 100/365/500/1000 crossed in one write. Four
+      pushes at once is spam; four same-timestamp feed items is clutter pretending to
+      be history; silence is a real loss. The statement that is true TODAY is the
+      biggest one, so it fires and everything beneath is marked spent, never firing
+      late. The same principle covers an app dormant across two milestones.*
+      ***The feed item is a first-class `milestone` type, not a `status` with a
+      marker*** *— a status is a person speaking, and three systems believe that: it
+      counts toward the streak (`POSTING_TYPES`), it enters `notifyOnItem`'s
+      partner-only fan-out, and it renders as somebody's line. The milestone document
+      carries NO `senderId`, and the absence is load-bearing in all three places:
+      `notifyOnItem` returns early (no one-sided push), `postsByDay` skips it (the
+      app congratulating itself cannot extend a streak), and the feed centres it.
+      The create rules' type enum deliberately excludes `milestone`, so no client
+      can forge one; members can react to one like any item. Written once per couple
+      — the id contains no member.*
+      ***Push: both partners, identically.*** *Every other notification excludes the
+      actor; a milestone has no actor, so for the first time there is nobody to
+      exclude. Fixed copy, no user content, so the previews setting is not consulted.
+      Targeting is tested; delivery remains **D-24**'s standing gap.*
+      ***The full-screen moment is a comparison of durable state, NOT P2-26's
+      transition detector*** *— deliberately. The pairing moment watches a change
+      arrive because one partner causes it; a milestone has no actor and crosses at
+      the couple's midnight with both phones dark, so "did this session watch it
+      happen" is the wrong question. Instead: `couples.milestoneCelebrated` (server
+      truth) against `users/{uid}.milestoneSeen` (this partner's own record, written
+      on dismissal). Greater means owed. Each partner sees it exactly once,
+      independently; a cold start after dismissal compares equal and shows nothing;
+      a leap across two milestones shows the highest. Gate-wise it is P2-26's shape:
+      a route of its own, released by acknowledge, with the pairing moment ranked
+      above it should P2-39 ever make both pending at once.*
+      *Rules: `milestoneSeen` added to `isWellFormedProfile` — nullable int,
+      0..100000, client-writable like `pushToken` (a fact about the writer's own
+      viewing; forging it costs the forger only their own celebration). **Audited:
+      4/5**, one new finding accepted (no monotonicity — a user can lower it and
+      replay their own moment, harming nobody else). Copy is a hand-kept Dart/TS
+      mirror in the D-17 shape: `milestone_copy.dart` ↔ `milestoneCopy` in
+      `milestone.ts`.*
+      *NOT deployed to dev in this change; the tick carrying it deploys with the
+      next functions release.*
 - [x] **P3-04** FCM fan-out — secret payloads carry no body and no preview.
       ***What each type shows.*** *A secret carries **the sender and nothing else**,
       and the check ignores the preview setting entirely rather than consulting it —

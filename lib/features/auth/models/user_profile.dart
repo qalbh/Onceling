@@ -10,6 +10,7 @@ class UserProfile {
     this.pairingCode,
     this.createdAt,
     this.onboardingSeenAt,
+    this.milestoneSeen = 0,
   });
 
   final String uid;
@@ -39,6 +40,12 @@ class UserProfile {
   /// not be authorable by the client it was made to.
   final DateTime? onboardingSeenAt;
 
+  /// The highest milestone day THIS partner has seen the full-screen moment
+  /// for (**P3-03**). Written by this client on dismissal — each partner keeps
+  /// their own, which is what makes the moment once-per-partner rather than
+  /// once-per-couple.
+  final int milestoneSeen;
+
   bool get isPaired => coupleId != null;
 
   /// The gate's question: has this person met the disclosure yet?
@@ -57,6 +64,7 @@ class UserProfile {
           const [],
       accentColor: data['accentColor'] as String?,
       pairingCode: data['pairingCode'] as String?,
+      milestoneSeen: (data['milestoneSeen'] as num?)?.toInt() ?? 0,
       // Duck-typed for the same reason as the feed mapper: a pending write has
       // no Timestamp yet. See P2-22.
       createdAt: switch (data['createdAt']) {

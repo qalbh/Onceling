@@ -171,6 +171,43 @@ class StatusNote extends FeedItem {
   int get hashCode => Object.hash(id, senderId, createdAt, text, icon);
 }
 
+/// A milestone crossing — day 100, 365, 500 or 1000 (**P3-03**).
+///
+/// **A first-class type, not a [StatusNote] with a marker**, because a status
+/// is a person speaking and everything downstream believes that: it counts
+/// toward the streak (`POSTING_TYPES` includes status — a milestone extending
+/// a streak would be the app congratulating itself), it triggers the
+/// partner-only notification path, and it renders as somebody's line. A
+/// milestone has no author. [senderId] is `''` on this type and nothing may
+/// read meaning into it.
+///
+/// Written only by the scheduled tick with the Admin SDK. The create rules'
+/// type enum deliberately does not include `milestone`, so no client can forge
+/// one — a couple's history of milestones is the server's testimony, not
+/// theirs.
+class MilestoneMessage extends FeedItem {
+  const MilestoneMessage({
+    required super.id,
+    required super.createdAt,
+    required this.day,
+    super.reactions,
+  }) : super(senderId: '');
+
+  /// Which milestone: 100, 365, 500 or 1000.
+  final int day;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MilestoneMessage &&
+      other.id == id &&
+      other.createdAt == createdAt &&
+      other.day == day &&
+      _mapEquals(other.reactions, reactions);
+
+  @override
+  int get hashCode => Object.hash(id, createdAt, day);
+}
+
 /// The tombstone for a sealed message.
 ///
 /// Carries no body by design: the content lives in `secretBodies/{itemId}` so

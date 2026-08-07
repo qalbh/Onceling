@@ -2083,3 +2083,226 @@ describe("P3-04 — what a notification is allowed to say (§10)", () => {
     assert.equal(copy.body, "🧋");
   });
 });
+
+describe("P3-03 — milestones", () => {
+  const milestone = requireFromFunctions("./lib/milestone.js");
+  const streak = requireFromFunctions("./lib/streak.js");
+  const A = "uid-a";
+  const B = "uid-b";
+
+  /** Whole days before [now], as an instant. Calendar arithmetic is the
+   *  module's own job; this only needs "roughly N days ago". */
+  const daysAgo = (now, days) =>
+    new Date(now.getTime() - days * 86_400_000);
+
+  async function coupleAt(id, anniversary, timezone = "UTC") {
+    await writeDoc(`couples/${id}`, {
+      memberIds: [A, B],
+      memberNames: { [A]: "Maya", [B]: "Sam" },
+      anniversaryDate: anniversary,
+      createdAt: anniversary,
+      streakCount: 0,
+      timezone,
+    });
+  }
+
+  async function itemsFor(coupleId) {
+    return await admin(async (db) => {
+      const snap = await getDocs(collection(db, "items"));
+      return snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((i) => i.coupleId === coupleId);
+    });
+  }
+
+  test("day 100 fires EXACTLY ONCE across repeated ticks", async () => {
+    const now = new Date("2026-08-07T12:00:00Z");
+    await coupleAt("m-once", daysAgo(now, 100));
+
+    const first = await milestone.celebrateMilestone(adminDb(), "m-once", now);
+    assert.equal(first.day, 100);
+
+    // Hour after hour, the tick keeps coming. Nothing may fire again — this
+    // is the whole problem P3-03 names.
+    for (let tick = 1; tick <= 5; tick++) {
+      const again = await milestone.celebrateMilestone(
+        adminDb(),
+        "m-once",
+        new Date(now.getTime() + tick * 3_600_000),
+      );
+      assert.equal(again, null, `tick ${tick} re-fired`);
+    }
+
+    // ONE feed item, for the couple, not one per partner. No senderId: a
+    // milestone has no author, and the absence is what keeps it out of
+    // notifyOnItem's fan-out and P3-02's posting count.
+    const items = await itemsFor("m-once");
+    assert.equal(items.length, 1);
+    assert.equal(items[0].id, "m-once-milestone-100");
+    assert.equal(items[0].type, "milestone");
+    assert.equal(items[0].day, 100);
+    assert.equal("senderId" in items[0], false);
+    assert.equal((await readDoc("couples/m-once")).milestoneCelebrated, 100);
+  });
+
+  test("the next milestone still fires when its day comes", async () => {
+    const now = new Date("2026-08-07T12:00:00Z");
+    await coupleAt("m-next", daysAgo(now, 100));
+    await milestone.celebrateMilestone(adminDb(), "m-next", now);
+
+    const later = new Date(now.getTime() + 265 * 86_400_000);
+    const fired = await milestone.celebrateMilestone(adminDb(), "m-next", later);
+    assert.equal(fired.day, 365);
+    assert.equal((await itemsFor("m-next")).length, 2);
+  });
+
+  test("the couple's TIMEZONE decides the day boundary", async () => {
+    // Same anniversary instant, same now. Karachi (+5) has reached local
+    // April 11 — day 100; Los Angeles (-7) is still on April 10 — day 99.
+    // A milestone firing at the wrong local midnight is the failure Q3 exists
+    // to prevent, so the two must disagree at this instant.
+    const anniversary = new Date("2026-01-01T10:00:00Z");
+    const now = new Date("2026-04-11T04:00:00Z");
+    assert.equal(
+      milestone.daysSinceAnniversary(anniversary, "Asia/Karachi", now),
+      100,
+    );
+    assert.equal(
+      milestone.daysSinceAnniversary(anniversary, "America/Los_Angeles", now),
+      99,
+    );
+
+    await coupleAt("m-tz-ahead", anniversary, "Asia/Karachi");
+    await coupleAt("m-tz-behind", anniversary, "America/Los_Angeles");
+
+    const ahead = await milestone.celebrateMilestone(
+      adminDb(), "m-tz-ahead", now,
+    );
+    const behind = await milestone.celebrateMilestone(
+      adminDb(), "m-tz-behind", now,
+    );
+    assert.equal(ahead.day, 100);
+    assert.equal(behind, null, "fired before their local midnight");
+  });
+
+  test("BOTH partners are push targets — a milestone has no actor", async () => {
+    // Every other notification excludes whoever caused it. Nobody caused
+    // this, so for the first time there is nobody to exclude. What this
+    // proves is the TARGETING; delivery itself is D-24's standing gap — no
+    // FCM emulator exists, and send() swallows the transport failure here
+    // exactly as it does a dead token in production.
+    const now = new Date("2026-08-07T12:00:00Z");
+    await coupleAt("m-both", daysAgo(now, 100));
+    await writeDoc(`users/${A}`, { displayName: "Maya", pushToken: "tok-a" });
+    await writeDoc(`users/${B}`, { displayName: "Sam", pushToken: "tok-b" });
+
+    const fired = await milestone.celebrateMilestone(adminDb(), "m-both", now);
+    assert.deepEqual(fired.recipients, [A, B]);
+  });
+
+  test("a partner with no token is skipped, the other still targeted", async () => {
+    const now = new Date("2026-08-07T12:00:00Z");
+    await coupleAt("m-onetok", daysAgo(now, 100));
+    await writeDoc(`users/${A}`, { displayName: "Maya", pushToken: "tok-a" });
+    await writeDoc(`users/${B}`, { displayName: "Sam" });
+
+    const fired = await milestone.celebrateMilestone(adminDb(), "m-onetok", now);
+    assert.deepEqual(fired.recipients, [A]);
+  });
+
+  test("a BACKDATED anniversary fires the highest milestone only", async () => {
+    // The P2-39 case: three years together, real date set, 100/365/500/1000
+    // all crossed in one write. Three pushes at once is spam; silence is a
+    // loss; the statement that is true TODAY is the biggest one.
+    const now = new Date("2026-08-07T12:00:00Z");
+    await coupleAt("m-back", daysAgo(now, 1100));
+
+    const fired = await milestone.celebrateMilestone(adminDb(), "m-back", now);
+    assert.equal(fired.day, 1000);
+
+    const items = await itemsFor("m-back");
+    assert.equal(items.length, 1, "exactly one item, not four");
+    assert.equal(items[0].day, 1000);
+
+    // The skipped ones are spent, not queued: they must never fire late.
+    const again = await milestone.celebrateMilestone(
+      adminDb(),
+      "m-back",
+      new Date(now.getTime() + 86_400_000),
+    );
+    assert.equal(again, null);
+  });
+
+  test("below day 100 nothing fires", async () => {
+    const now = new Date("2026-08-07T12:00:00Z");
+    await coupleAt("m-young", daysAgo(now, 99));
+    assert.equal(
+      await milestone.celebrateMilestone(adminDb(), "m-young", now),
+      null,
+    );
+    assert.equal((await itemsFor("m-young")).length, 0);
+  });
+
+  test("a NULL anniversaryDate does not crash — the tick included", async () => {
+    // Every couple from before M-10 is in this state permanently.
+    await writeDoc("couples/m-null", {
+      memberIds: [A, B],
+      memberNames: { [A]: "Maya", [B]: "Sam" },
+      anniversaryDate: null,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      streakCount: 0,
+      timezone: "UTC",
+    });
+
+    assert.equal(
+      await milestone.celebrateMilestone(adminDb(), "m-null", new Date()),
+      null,
+    );
+
+    // And through the real entry point: the streak tick calls the milestone
+    // check on every couple, so a crash here would take P3-02 down with it.
+    const result = await streak.evaluateStreakForCouple(
+      adminDb(),
+      "m-null",
+      new Date("2026-08-07T12:00:00Z"),
+    );
+    assert.notEqual(result, null);
+  });
+
+  test("an unpaired couple is left alone", async () => {
+    const now = new Date("2026-08-07T12:00:00Z");
+    await writeDoc("couples/m-swept", {
+      memberIds: [A, B],
+      anniversaryDate: daysAgo(now, 500),
+      createdAt: daysAgo(now, 500),
+      status: "unpaired",
+      timezone: "UTC",
+    });
+    assert.equal(
+      await milestone.celebrateMilestone(adminDb(), "m-swept", now),
+      null,
+    );
+  });
+
+  test("the hourly tick is the delivery vehicle — crossing fires through it", async () => {
+    // The integration, not just the unit: evaluateStreakForCouple is what the
+    // schedule actually runs, and the milestone must ride it rather than
+    // waiting for a second sweep that would double D-20's read cost.
+    const now = new Date("2026-08-07T12:00:00Z");
+    await coupleAt("m-tick", daysAgo(now, 365));
+
+    await streak.evaluateStreakForCouple(adminDb(), "m-tick", now);
+
+    const items = await itemsFor("m-tick");
+    assert.equal(items.filter((i) => i.type === "milestone").length, 1);
+    assert.equal(items[0].day, 365);
+  });
+
+  test("the copy never shouts", () => {
+    for (const day of milestone.MILESTONE_DAYS) {
+      const copy = milestone.milestoneCopy(day);
+      assert.equal(copy.title, `Day ${day}`);
+      assert.equal(copy.body.includes("!"), false);
+    }
+  });
+});

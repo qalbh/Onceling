@@ -2,6 +2,7 @@ import { getApps, initializeApp } from "firebase-admin/app";
 import { Firestore, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 
+import { celebrateMilestone } from "./milestone.js";
 import {
   daysBetweenKeys,
   localDateKey,
@@ -279,6 +280,19 @@ export async function evaluateStreakForCouple(
   const timezone = usableTimezone(data.timezone);
   const members = (data.memberIds ?? []) as string[];
   const state = readState(data);
+
+  // **P3-03** rides this tick rather than walking `couples` a second time —
+  // a second scheduled sweep would double D-20's read cost to learn nothing
+  // this one does not already know. The check is pure arithmetic against a
+  // document this function has already read, so it costs nothing until a
+  // milestone actually fires; its own transaction re-reads before writing, so
+  // sharing the tick adds no race. Isolated so a milestone failure cannot
+  // stop the streak from being scored, or vice versa.
+  try {
+    await celebrateMilestone(db, coupleId, now);
+  } catch (err) {
+    console.warn(`[P3-03] milestone failed for ${coupleId}: ${err}`);
+  }
 
   // Only completed days are scored. Today is still in progress — evaluating it
   // would break every streak at midnight and mend it again when someone posts.

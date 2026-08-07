@@ -11,6 +11,7 @@ class Couple {
     this.anniversaryDate,
     this.streakCount = 0,
     this.streakBrokenAt,
+    this.milestoneCelebrated = 0,
     this.timezone,
     this.moodEmoji,
     this.moodText,
@@ -63,6 +64,13 @@ class Couple {
   /// True when the streak is over but its number is still worth showing.
   bool get isStreakFaded => streakBrokenAt != null;
 
+  /// The highest milestone day the tick has fired for this couple (**P3-03**).
+  ///
+  /// Server-owned like everything else on this document; the client compares
+  /// it against its own `milestoneSeen` to decide whether the full-screen
+  /// moment is owed. Zero until the first crossing.
+  final int milestoneCelebrated;
+
   /// The couple's shared IANA timezone (**Q3**, **P2-40**). Null on every
   /// couple paired before it, and on a device that could not name its own —
   /// the server falls back rather than skipping them.
@@ -103,6 +111,7 @@ class Couple {
       anniversaryDate: _readTime(data['anniversaryDate']),
       streakCount: (data['streakCount'] as num?)?.toInt() ?? 0,
       streakBrokenAt: data['streakBrokenAt'] as String?,
+      milestoneCelebrated: (data['milestoneCelebrated'] as num?)?.toInt() ?? 0,
       timezone: data['timezone'] as String?,
       moodEmoji: data['moodEmoji'] as String?,
       moodText: data['moodText'] as String?,

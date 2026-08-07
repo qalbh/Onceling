@@ -179,6 +179,39 @@ void main() {
     });
   });
 
+  group('round trip — milestone (P3-03)', () {
+    test('MilestoneMessage', () {
+      expectRoundTrip(
+        MilestoneMessage(
+          id: 'm1',
+          createdAt: createdAt,
+          day: 100,
+          reactions: const {reader: '🥰'},
+        ),
+      );
+    });
+
+    test('a milestone has no author, structurally', () {
+      // senderId is the class's no-author sentinel; nothing may pass one in,
+      // which the constructor enforces by not having the parameter at all.
+      final item = MilestoneMessage(id: 'm2', createdAt: createdAt, day: 365);
+      expect(item.senderId, '');
+    });
+
+    test('the server document — no senderId at all — still maps', () {
+      // The real document is authored in TypeScript without a senderId key.
+      final item = fromFirestore('m3', {
+        'type': 'milestone',
+        'day': 1000,
+        'reactions': <String, String>{},
+        'createdAt': createdAt,
+      });
+      expect(item, isA<MilestoneMessage>());
+      expect((item as MilestoneMessage).day, 1000);
+      expect(item.senderId, '');
+    });
+  });
+
   group('document shape', () {
     test('untilClosed writes a null revealDurationSeconds', () {
       final data = toFirestore(
