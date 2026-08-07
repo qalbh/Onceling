@@ -198,7 +198,7 @@ void main() {
 
       final unset = containerWith(withAnniversary(null));
       await settle(unset);
-      expect(unset.read(anniversaryLabelProvider), 'Not set');
+      expect(unset.read(anniversaryLabelProvider), 'Set your day one');
     });
   });
 

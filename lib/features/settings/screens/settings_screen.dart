@@ -12,6 +12,7 @@ import '../../feed/feed_emoji.dart';
 import '../../pairing/couple_names.dart';
 import '../../feed/widgets/feed_header.dart';
 import '../../feed/widgets/reaction_tray.dart';
+import '../anniversary_service.dart';
 import '../widgets/settings_rows.dart';
 import '../widgets/unpair_sheet.dart';
 
@@ -36,6 +37,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       defaultTrayEmoji;
 
   bool _secretAlerts = true;
+  bool _savingAnniversary = false;
 
   Future<void> _swapFavourite(int index) async {
     final picked = await ReactionTray.show(context, title: 'Pick a favourite');
@@ -69,6 +71,41 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  /// **P2-39.** Picks a day and sends it as a calendar date.
+  ///
+  /// The picker's bounds mirror the server's: nothing in the future, nothing
+  /// past the 100-year plausibility line. The server re-checks both against
+  /// the COUPLE'S timezone — this device's idea of "today" is only a hint.
+  ///
+  /// Success needs no navigation: the row updates through the couple stream,
+  /// and if the edit crossed a milestone the gate brings the moment up on its
+  /// own. That moment appearing IS the dramatic success state.
+  Future<void> _editAnniversary() async {
+    final now = DateTime.now();
+    final current = ref.read(coupleProvider).valueOrNull?.anniversaryDate;
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: current ?? now,
+      firstDate: now.subtract(const Duration(days: 36525)),
+      lastDate: now,
+      helpText: 'The day you count from',
+    );
+    if (picked == null || !mounted) return;
+
+    setState(() => _savingAnniversary = true);
+    try {
+      await ref.read(anniversaryServiceProvider).setAnniversary(picked);
+      if (mounted) showAppToast(context, 'Your day one is set.');
+    } catch (_) {
+      if (mounted) {
+        showAppToast(context, 'That did not save. Try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _savingAnniversary = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -89,7 +126,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 SettingsRow(
                   label: 'Anniversary',
-                  value: ref.watch(anniversaryLabelProvider),
+                  value: _savingAnniversary
+                      ? 'Saving…'
+                      : ref.watch(anniversaryLabelProvider),
+                  onTap: _savingAnniversary ? null : _editAnniversary,
                 ),
                 SettingsRow(
                   label: 'Streak',

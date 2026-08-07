@@ -69,12 +69,15 @@ final anniversaryLineProvider = Provider<String>((ref) {
 
 /// The anniversary as a settings row shows it — the date alone, no day count.
 ///
-/// Falls back to "Not set" rather than [unknownAnniversary]: in a list of
-/// editable settings, an empty-looking value is the correct register, and it
-/// reads as the affordance **P2-39** will make real.
+/// A couple with no date gets a call to action, not a dead label (**P2-39**):
+/// "Not set" described a fact nobody could act on, and every pre-M-10 couple
+/// sat behind it permanently. The row is now the edit path, so the empty
+/// state's job is to say so.
 final anniversaryLabelProvider = Provider<String>((ref) {
   final anniversary = ref.watch(coupleProvider).valueOrNull?.anniversaryDate;
-  return anniversary == null ? 'Not set' : formatCalendarDate(anniversary);
+  return anniversary == null
+      ? 'Set your day one'
+      : formatCalendarDate(anniversary);
 });
 
 /// The streak as the header and settings show it (**M-06**, **P3-02**).

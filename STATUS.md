@@ -1,14 +1,14 @@
 # Onceling — Status
 
-**Last updated: 2026-08-07**
+**Last updated: 2026-08-08**
 
 ## Now
 
-**P2-39** — `setAnniversary(date)` callable, the settings edit path for M-10.
+**P2-28** — expire pending pairing requests (7 days, scheduled).
 
 ## At a glance
 
-**Phase 3 of 4** · **49 open · 54 done**
+**Phase 3 of 4** · **49 open · 55 done**
 Blocked on money: **4** — P2-20 (Sign in with Apple), P4-06 (prod Blaze), P4-07
 (TestFlight), P4-09 (APNs key) — all the same paid Apple Developer account except
 P4-06, which is a billing plan.
@@ -21,12 +21,12 @@ adds the money items above.
 
 ## Next three
 
-1. **P2-39** `setAnniversary` — it is the standing *Now*: M-10's promise ("you can
-   change this later") is currently false, every pre-M-10 couple has no anniversary
-   at all, and it is the only way to exercise P3-03's milestones against real dates.
-2. **P2-28** Expire pending requests (7 days, scheduled) — PI-05's guarantee rests
+1. **P2-28** Expire pending requests (7 days, scheduled) — PI-05's guarantee rests
    on it: a declined request must be indistinguishable from an expired one, which
-   requires expiry to exist. P2-38's backstop sweep can share the same schedule.
+   requires expiry to exist.
+2. **P2-38** Backstop sweep for couples stuck at `status: 'unpaired'` — it shares
+   P2-28's schedule, so building them together costs one scheduled function, not
+   two, and closes the sweep gap P2-36's entry records.
 3. **D-28** Prove the orphan half of the photo sweep on dev, with throwaway
    accounts — the one place "destroy everything" is still unproven, and brief §10
    and Q5 both hang on it. Test plan already written in the entry.
@@ -530,21 +530,71 @@ there is data.
       never moves, indefinitely and invisibly, which looks exactly like a bug.*
       *Existing couples keep null and no migration runs, same as **M-02** and
       **M-10**. **P2-39** is how a couple fixes it.*
-- [ ] **P2-39** `setAnniversary(date)` callable — the settings edit path for **M-10**,
-      and for the timezone (**P2-40**/**Q3**) now that couples carry one.
+- [x] **P2-39** `setAnniversary(date)` callable — the settings edit path for **M-10**.
+      *Split: the timezone edit this entry also named is now **P2-43** — it was a
+      second callable with its own hazards, and half-ticking is what the maintenance
+      rules forbid.*
+      *A callable, not a write: `couples` denies every client write in every
+      direction. **No `coupleId` parameter at all** — the couple is read from the
+      caller's own profile, so the strongest form of "a non-member cannot set another
+      couple's anniversary" holds: no other couple can even be named. Membership is
+      still checked against the couple document, not the profile's claim, and an
+      unpaired-status couple refuses.*
+      *The date travels as a calendar key (`YYYY-MM-DD`), never an instant — an
+      anniversary is a day on a wall calendar, and an instant would smuggle the
+      DEVICE's timezone into a field the COUPLE's zone governs. Unparseable and
+      impossible dates (`2026-02-30`) are rejected, never coerced. Bounds are checked
+      against today IN THE COUPLE'S ZONE: past their midnight, their real anniversary
+      is a future date by Greenwich's clock, and rejecting it would be Q3's off-by-one
+      wearing a validation costume. Lower bound **100 years** — the longest recorded
+      marriages run ~85, a century covers every living couple with margin, and
+      anything earlier is a typo (1926 for 2026) that silent acceptance would turn
+      into a couple with every milestone spent. Stored as an instant that lands on
+      the chosen day in the couple's zone (`instantOnLocalDay`): UTC midnight is a
+      day off anywhere west of Greenwich, and no single UTC hour survives the
+      26-hour offset range, so it corrects once from UTC noon. Idempotent by nature.*
+      ***The three milestone cases, decided:*** ***earlier*** *(and the pre-M-10
+      first-set, same code path): P3-03's rule unchanged — highest fires, rest spent.
+      The couple watching makes it MORE right: they just typed the date, and four
+      pushes would be the app narrating arithmetic they did themselves. The milestone
+      fires immediately after the commit rather than at the next tick — a couple
+      standing in settings deserves the moment now, and it is the first honest demo
+      of P3-03 against a real date.* ***Later*** *(uncrossing): `milestoneCelebrated`
+      does NOT roll back. It records that a moment happened between two people, and
+      it did; a rollback would re-fire day 365 on the second crossing, and celebrating
+      the same evening twice is worse than a true history. Mechanically it would also
+      overwrite the existing feed item, resetting its timestamp and wiping its
+      reactions. Nothing writes the field downward, by construction — and after a
+      forward edit the next milestone to fire is the next UNCELEBRATED one (500), not
+      a replay.*
+      ***The streak hazard checked, not assumed:*** *the incremental path resumes
+      from `streakEvaluatedThrough` and never consults the anniversary once set;
+      the anniversary only seeds `firstDayOf` on a never-evaluated couple, where the
+      extra pre-pairing days are empty and `replayStreak`'s `streakCount === 0`
+      branch scores them as nothing-to-protect. A test pins streak state across a
+      three-year backdate plus a tick.*
+      ***No notification to the other partner on edit, deliberately.*** *The change
+      is visible where it lives — the header's day count and the settings row update
+      live through the couple stream — and in the dramatic case the milestone push
+      and moment reach BOTH partners anyway, which is organically the notification.
+      A "your partner changed the anniversary" push is the register of an audit log,
+      not of this app; the space is shared and so is control over it.*
+      *Client: the settings row is the edit path. No anniversary reads "Set your day
+      one" — a call to action, not the dead "Not set" label. Picker bounds mirror the
+      server's; saving shows on the row; failure toasts and recovers; backing out
+      saves nothing, same rule as every cancelled picker. Rules unchanged: `couples`
+      was already closed to client writes, confirmed rather than assumed, so no audit
+      was triggered.*
+- [ ] **P2-43** `setTimezone(zone)` callable — the OTHER half of what P2-39's entry
+      originally named, split out unbuilt.
       ***Changing the zone must not retroactively rewrite streak history.***
       **P3-02** stores streak dates as calendar-date keys in the couple's zone, so
       re-scoring old days under a new zone would silently move which day each past
       post belonged to and could break a live streak retroactively. Change the zone
       going forward only: leave `lastStreakDate`, `lastGraceDate`, `streakBrokenAt`
       and `streakEvaluatedThrough` untouched, and let the new zone apply from the
-      next evaluation.
-      A callable, not a write: `couples` denies every client write in every direction,
-      which is what makes `coupleId` and the rest of that document trustworthy.
-      Must validate that the caller is a member of the couple it names, reject a date
-      in the future, and bound how far back it may be set. Until it exists the
-      anniversary is whatever the pairing date was, and a couple with a real earlier
-      date has no way to say so.
+      next evaluation. Same callable shape as P2-39: member-only, couple from the
+      caller's profile, `normaliseTimezone` already exists to validate the input.
 - [x] **P2-13** Photo upload to Cloud Storage.
       *Storage emulator enabled first (port 9199, `storage.rules` registered), so
       nothing in this task ever addressed the real dev bucket.*

@@ -87,7 +87,7 @@ void main() {
     // editable.
     await pumpSettings(tester);
 
-    expect(find.text('Not set'), findsOneWidget);
+    expect(find.text('Set your day one'), findsOneWidget);
     expect(find.text('4 November 2023'), findsNothing);
   });
 
@@ -264,5 +264,96 @@ void main() {
     expect(find.byType(SignInScreen), findsOneWidget);
     expect(find.byType(SettingsScreen), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  group('P2-39 — the anniversary row edits', () {
+    testWidgets('tapping the row opens the picker, picking saves', (
+      tester,
+    ) async {
+      final service = FakeAnniversaryService();
+      await pumpSettings(
+        tester,
+        overrides: signedInOverrides(
+          coupleId: 'couple-1',
+          anniversaryDate: DateTime(2023, 11, 4),
+          anniversary: service,
+        ),
+      );
+
+      await tapRow(tester, 'Anniversary');
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      // The picker opened on the current anniversary, so OK confirms it —
+      // which is also the idempotent path: re-saving the same date succeeds.
+      expect(service.calls, [DateTime(2023, 11, 4)]);
+      expect(find.text('Your day one is set.'), findsOneWidget);
+    });
+
+    testWidgets('no anniversary is a call to action, and it works', (
+      tester,
+    ) async {
+      // 'Not set' was a dead label; every pre-M-10 couple sat behind it
+      // permanently. The row is the edit path now, and the empty state says
+      // so.
+      final service = FakeAnniversaryService();
+      await pumpSettings(
+        tester,
+        overrides: signedInOverrides(
+          coupleId: 'couple-1',
+          anniversary: service,
+        ),
+      );
+
+      await tapRow(tester, 'Set your day one');
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(service.calls, hasLength(1));
+    });
+
+    testWidgets('a failure says so and the row recovers', (tester) async {
+      final service = FakeAnniversaryService(error: Exception('refused'));
+      await pumpSettings(
+        tester,
+        overrides: signedInOverrides(
+          coupleId: 'couple-1',
+          anniversaryDate: DateTime(2023, 11, 4),
+          anniversary: service,
+        ),
+      );
+
+      await tapRow(tester, 'Anniversary');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('That did not save. Try again.'), findsOneWidget);
+      // Not stuck on 'Saving…' — the row is usable again.
+      expect(find.text('Saving…'), findsNothing);
+    });
+
+    testWidgets('backing out of the picker saves nothing', (tester) async {
+      // Backing out is a decision, not a fault — same rule as the cancelled
+      // Google sign-in and the photo picker.
+      final service = FakeAnniversaryService();
+      await pumpSettings(
+        tester,
+        overrides: signedInOverrides(
+          coupleId: 'couple-1',
+          anniversaryDate: DateTime(2023, 11, 4),
+          anniversary: service,
+        ),
+      );
+
+      await tapRow(tester, 'Anniversary');
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, isEmpty);
+      expect(find.text('Your day one is set.'), findsNothing);
+    });
   });
 }

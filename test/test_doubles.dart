@@ -12,6 +12,7 @@ import 'package:couple_app/features/auth/profile_service.dart';
 import 'package:couple_app/features/mood/mood_service.dart';
 import 'package:couple_app/features/notifications/push_service.dart';
 import 'package:couple_app/features/pairing/couple_names.dart';
+import 'package:couple_app/features/settings/anniversary_service.dart';
 import 'package:couple_app/features/pairing/device_timezone.dart';
 import 'package:couple_app/features/pairing/models/couple.dart';
 import 'package:couple_app/features/pairing/models/pairing_request.dart';
@@ -231,6 +232,22 @@ class FakeSecretService implements SecretService {
 /// **P3-04.** The behaviour worth pinning is `unregister` on sign-out: a stale
 /// token keeps delivering a couple's notifications to a handset somebody else
 /// may now be holding.
+/// Records anniversary edits (**P2-39**); can fail on demand.
+class FakeAnniversaryService implements AnniversaryService {
+  FakeAnniversaryService({this.error, this.milestone});
+
+  final Object? error;
+  final int? milestone;
+  final List<DateTime> calls = [];
+
+  @override
+  Future<int?> setAnniversary(DateTime date) async {
+    calls.add(date);
+    if (error case final e?) throw e;
+    return milestone;
+  }
+}
+
 class FakePushService implements PushService {
   final List<String> calls = [];
   final _refresh = StreamController<String>.broadcast();
@@ -379,6 +396,7 @@ List<Override> signedInOverrides({
   // the writes all run for real — only the backend is fake.
   FakeFirebaseFirestore? firestore,
   MoodService? mood,
+  AnniversaryService? anniversary,
   SecretService? secret,
   // P3-04. Overridden by default: the real one touches
   // `FirebaseMessaging.instance`, which throws with no Firebase app.
@@ -392,6 +410,9 @@ List<Override> signedInOverrides({
   deviceTimezoneProvider.overrideWithValue(() async => deviceTimezone),
   if (firestore case final db?) firestoreProvider.overrideWithValue(db),
   if (mood case final service?) moodServiceProvider.overrideWithValue(service),
+  anniversaryServiceProvider.overrideWithValue(
+    anniversary ?? FakeAnniversaryService(),
+  ),
   if (secret case final service?)
     secretServiceProvider.overrideWithValue(service),
   authStateProvider.overrideWith((ref) => Stream.value(FakeUser())),

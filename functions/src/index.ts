@@ -39,4 +39,5 @@ export {
   sweepExpiredRevealsScheduled,
 } from "./secret.js";
 export { updateStreaksScheduled } from "./streak.js";
+export { setAnniversary } from "./anniversary.js";
 export { sweepUnpairedCouple, unpair } from "./unpair.js";

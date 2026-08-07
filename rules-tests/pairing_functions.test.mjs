@@ -2306,3 +2306,234 @@ describe("P3-03 — milestones", () => {
     }
   });
 });
+
+describe("P2-39 — setAnniversary", () => {
+  const anniversary = requireFromFunctions("./lib/anniversary.js");
+  const streak = requireFromFunctions("./lib/streak.js");
+  const A = "uid-a";
+  const B = "uid-b";
+
+  const daysAgoKey = (now, days) =>
+    new Date(now.getTime() - days * 86_400_000).toISOString().slice(0, 10);
+
+  async function coupleFor(uid, coupleId, extra = {}) {
+    await writeDoc(`users/${uid}`, { displayName: "Someone", coupleId });
+    await writeDoc(`couples/${coupleId}`, {
+      memberIds: [uid, B],
+      memberNames: { [uid]: "Maya", [B]: "Sam" },
+      createdAt: new Date("2026-08-01T00:00:00Z"),
+      streakCount: 0,
+      timezone: "UTC",
+      ...extra,
+    });
+  }
+
+  test("through the CALLABLE: a signed-in member sets a date", async () => {
+    const user = await newUser();
+    await coupleFor(user.uid, "ann-http");
+    const result = await user.call("setAnniversary", { date: "2026-08-01" });
+    assert.equal(result.data.date, "2026-08-01");
+    const stored = await readDoc("couples/ann-http");
+    assert.notEqual(stored.anniversaryDate, null);
+  });
+
+  test("anonymous callers are rejected", async () => {
+    const anon = anonCaller();
+    await assert.rejects(
+      anon("setAnniversary", { date: "2026-08-01" }),
+      /Sign in first/i,
+    );
+  });
+
+  test("an unpaired caller cannot set anything — there is no couple to name", async () => {
+    // The strongest form of "a non-member cannot set another couple's
+    // anniversary": the API has no coupleId parameter at all. The couple is
+    // read from the caller's own profile, so the only couple reachable is
+    // your own.
+    const user = await newUser();
+    await writeDoc(`users/${user.uid}`, {
+      displayName: "Loner",
+      coupleId: null,
+    });
+    await assert.rejects(
+      user.call("setAnniversary", { date: "2026-08-01" }),
+      /not paired|failed-precondition/i,
+    );
+  });
+
+  test("a profile pointing at a couple that does not list you is refused", async () => {
+    // The forged-membership case: Eve's profile claims Alice's couple. The
+    // membership check is against the couple document, not the claim.
+    const eve = await newUser();
+    await writeDoc(`couples/not-eves`, {
+      memberIds: [A, B],
+      createdAt: new Date(),
+      streakCount: 0,
+      timezone: "UTC",
+    });
+    await writeDoc(`users/${eve.uid}`, {
+      displayName: "Eve",
+      coupleId: "not-eves",
+    });
+    await assert.rejects(
+      eve.call("setAnniversary", { date: "2026-08-01" }),
+      /permission-denied|not yours/i,
+    );
+    assert.equal(
+      (await readDoc("couples/not-eves")).anniversaryDate ?? null,
+      null,
+    );
+  });
+
+  test("garbage is rejected, never coerced", async () => {
+    for (const bad of [
+      "yesterday", "2026-02-30", "2026-13-01", 12345, null,
+      "2026-8-1", "08-08-2026", { date: "x" },
+    ]) {
+      await assert.rejects(
+        anniversary.applyAnniversary(adminDb(), A, bad, new Date()),
+        /invalid-argument|not a date/i,
+        `accepted: ${JSON.stringify(bad)}`,
+      );
+    }
+  });
+
+  test("the future and the implausible past are both rejected", async () => {
+    const now = new Date("2026-08-08T12:00:00Z");
+    await coupleFor(A, "ann-bounds");
+    await assert.rejects(
+      anniversary.applyAnniversary(adminDb(), A, "2026-08-09", now),
+      /has not happened/,
+    );
+    // A century and a day back: the typo bound (1926 for 2026).
+    await assert.rejects(
+      anniversary.applyAnniversary(adminDb(), A, "1926-08-06", now),
+      /too long ago/,
+    );
+    // A hundred years exactly is still a plausible, if remarkable, couple.
+    const ok = await anniversary.applyAnniversary(
+      adminDb(), A, "1926-08-09", now,
+    );
+    assert.equal(ok.date, "1926-08-09");
+  });
+
+  test("'today' is the COUPLE'S today, not Greenwich's", async () => {
+    // Kiritimati is UTC+14: at noon UTC on the 7th their calendar reads the
+    // 8th. Their own today must be settable even though it is a future date
+    // by UTC's clock — rejecting it would be Q3's off-by-one wearing a
+    // validation costume.
+    const now = new Date("2026-08-07T12:00:00Z");
+    await coupleFor(A, "ann-tz", { timezone: "Pacific/Kiritimati" });
+    const result = await anniversary.applyAnniversary(
+      adminDb(), A, "2026-08-08", now,
+    );
+    assert.equal(result.date, "2026-08-08");
+  });
+
+  test("the stored instant lands on the chosen day in the couple's zone", () => {
+    // Both extremes of the offset range, where UTC midnight is wrongest.
+    const tz = requireFromFunctions("./lib/timezone.js");
+    for (const zone of ["Pacific/Kiritimati", "Pacific/Pago_Pago", "UTC",
+      "America/Los_Angeles", "Asia/Karachi"]) {
+      const instant = anniversary.instantOnLocalDay("2023-11-04", zone);
+      assert.equal(
+        tz.localDateKey(instant, zone),
+        "2023-11-04",
+        `off by a day in ${zone}`,
+      );
+    }
+  });
+
+  test("idempotent: the same date twice succeeds twice", async () => {
+    const now = new Date("2026-08-08T12:00:00Z");
+    await coupleFor(A, "ann-idem");
+    const first = await anniversary.applyAnniversary(
+      adminDb(), A, "2026-08-01", now,
+    );
+    const second = await anniversary.applyAnniversary(
+      adminDb(), A, "2026-08-01", now,
+    );
+    assert.equal(first.date, second.date);
+  });
+
+  test("EARLIER: a three-year backdate fires the HIGHEST milestone, once", async () => {
+    const now = new Date("2026-08-08T12:00:00Z");
+    await coupleFor(A, "ann-back");
+    const result = await anniversary.applyAnniversary(
+      adminDb(), A, daysAgoKey(now, 1100), now,
+    );
+    assert.equal(result.milestone, 1000);
+
+    // ONE feed item — not four. The moment does not fire four times either:
+    // the full-screen gate compares milestoneCelebrated (now 1000) against
+    // milestoneSeen once, so each partner gets exactly one moment.
+    const items = await admin(async (db) => {
+      const snap = await getDocs(collection(db, "items"));
+      return snap.docs.filter((d) => d.data().coupleId === "ann-back");
+    });
+    assert.equal(items.length, 1);
+    assert.equal(items[0].data().day, 1000);
+    assert.equal(
+      (await readDoc("couples/ann-back")).milestoneCelebrated,
+      1000,
+    );
+  });
+
+  test("NONE: a pre-M-10 couple setting a first date crosses normally", async () => {
+    // Same rule as EARLIER, confirmed: no special case for a couple whose
+    // anniversaryDate was null — the write is the same write.
+    const now = new Date("2026-08-08T12:00:00Z");
+    await coupleFor(A, "ann-none", { anniversaryDate: null });
+    const result = await anniversary.applyAnniversary(
+      adminDb(), A, daysAgoKey(now, 150), now,
+    );
+    assert.equal(result.milestone, 100);
+  });
+
+  test("LATER: milestoneCelebrated does NOT roll back", async () => {
+    // Day 400, day-365 moment seen, date moved forward to day 30. The record
+    // says a moment happened between these two people, and it did. Rolling
+    // back would re-fire 365 on the second crossing — and overwrite the
+    // existing feed item, resetting its timestamp and wiping its reactions.
+    const now = new Date("2026-08-08T12:00:00Z");
+    await coupleFor(A, "ann-fwd", { milestoneCelebrated: 365 });
+    const result = await anniversary.applyAnniversary(
+      adminDb(), A, daysAgoKey(now, 30), now,
+    );
+    assert.equal(result.milestone, null);
+    assert.equal((await readDoc("couples/ann-fwd")).milestoneCelebrated, 365);
+
+    // And when they cross 500 for real, 365 is not re-celebrated: the next
+    // fire is 500 alone.
+    const later = await anniversary.applyAnniversary(
+      adminDb(), A, daysAgoKey(now, 501), now,
+    );
+    assert.equal(later.milestone, 500);
+  });
+
+  test("streak state survives an anniversary edit untouched", async () => {
+    // The hazard P2-40 recorded for timezones, checked for anniversaries:
+    // they share no state. The incremental path resumes from
+    // streakEvaluatedThrough and never consults the anniversary once set.
+    const now = new Date("2026-08-08T12:00:00Z");
+    const yesterday = "2026-08-07";
+    await coupleFor(A, "ann-streak", {
+      streakCount: 5,
+      lastStreakDate: yesterday,
+      lastGraceDate: null,
+      streakBrokenAt: null,
+      streakEvaluatedThrough: yesterday,
+    });
+
+    await anniversary.applyAnniversary(
+      adminDb(), A, daysAgoKey(now, 1100), now,
+    );
+    await streak.evaluateStreakForCouple(adminDb(), "ann-streak", now);
+
+    const after = await readDoc("couples/ann-streak");
+    assert.equal(after.streakCount, 5);
+    assert.equal(after.lastStreakDate, yesterday);
+    assert.equal(after.streakEvaluatedThrough, yesterday);
+    assert.equal(after.streakBrokenAt, null);
+  });
+});
