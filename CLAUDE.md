@@ -313,7 +313,10 @@ Its own maintenance rules are at the top of that file — follow them.
 
 - Read it at the start of any session that touches feature work.
 - Tick the relevant box in the **same change** that completes the task.
-- Update **Last updated**, the **Phase** line, and **Now** whenever you tick anything.
+- Update **Last updated** and the dashboard at the top — **Now**, **At a glance**,
+  **Next three** — whenever you tick anything. Run `tools/status-counts.sh --check`
+  before committing any tick; the counts are computed, never remembered, and the
+  check exits non-zero when the dashboard has drifted.
 - Never mark a **Decision** (Q1–Q5) resolved. Those belong to the owner. If the code
   implies an answer, note it in the description — don't tick it.
 - New tasks get the next free ID. IDs are frozen; never renumber. Retired scope moves
